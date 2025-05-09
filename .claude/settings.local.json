@@ -16,7 +16,9 @@
       "Bash(apt-cache:*)",
       "Bash(python3 -c \"import sys; print(sys.executable); print(sys.path)\")",
       "Bash(./gpu_check_env.py)",
-      "Bash(CUDA_VISIBLE_DEVICES=0 TORCH_DEVICE=cuda ./gpu_check_env.py)"
+      "Bash(CUDA_VISIBLE_DEVICES=0 TORCH_DEVICE=cuda ./gpu_check_env.py)",
+      "Bash(./start.sh:*)",
+      "Bash(ln:*)"
     ],
     "deny": []
   }
