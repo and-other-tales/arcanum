@@ -15,6 +15,8 @@ import argparse
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
 import io
+import functools
+import warnings
 
 # LangChain & LangGraph imports
 from langchain_core.messages import AIMessage, HumanMessage
@@ -24,6 +26,40 @@ from langchain.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.tools import BaseTool
+
+# Suppress LangChainDeprecationWarning for BaseTool.__call__
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="langchain")
+
+# Helper function to safely call LangChain tools with backward compatibility
+def safe_tool_call(tool_obj, **kwargs):
+    """Safely call a LangChain tool with backward compatibility.
+
+    This function attempts to call a tool using different methods to handle
+    both older and newer versions of LangChain.
+
+    Args:
+        tool_obj: The LangChain tool to call
+        **kwargs: The arguments to pass to the tool
+
+    Returns:
+        The result from the tool invocation
+    """
+    try:
+        # First try direct call (older style, generates deprecation warning)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            return tool_obj(**kwargs)
+    except TypeError:
+        try:
+            # Next try .invoke() without input wrapper (newer style)
+            return tool_obj.invoke(**kwargs)
+        except TypeError:
+            try:
+                # Finally try .invoke() with input wrapper (pydantic style)
+                return tool_obj.invoke(input=kwargs)
+            except Exception as e:
+                # If all attempts fail, return a message about the error
+                return f"Tool invocation failed: {str(e)}"
 
 # Geographic data processing
 import geopandas as gpd
@@ -1340,12 +1376,16 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         # Step 1: Data Collection
         logger.info("Step 1: Data Collection")
         try:
-            logger.info(data_agent.download_osm_data(bounds=config["bounds"]))
+            # Using our safe_tool_call helper function
+            result = safe_tool_call(data_agent.download_osm_data, bounds=config["bounds"])
+            logger.info(result)
         except Exception as e:
             logger.warning(f"OSM data download failed: {str(e)}. Continuing with workflow...")
 
         try:
-            logger.info(data_agent.download_lidar_data(region="Arcanum"))
+            # Using our safe_tool_call helper function
+            result = safe_tool_call(data_agent.download_lidar_data, region="Arcanum")
+            logger.info(result)
         except Exception as e:
             logger.warning(f"LiDAR data download failed: {str(e)}. Continuing with workflow...")
 
@@ -1353,7 +1393,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         if not config.get("skip_cloud", False) and CLOUD_IMPORTS_AVAILABLE:
             logger.info("Downloading satellite imagery...")
             try:
-                satellite_result = data_agent.fetch_google_satellite_imagery(bounds=config["bounds"])
+                # Using our safe_tool_call helper function
+                satellite_result = safe_tool_call(data_agent.fetch_google_satellite_imagery, bounds=config["bounds"])
                 logger.info(satellite_result)
             except Exception as e:
                 logger.warning(f"Satellite imagery download failed: {str(e)}. Continuing with workflow...")
@@ -1365,7 +1406,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         if os.path.exists(satellite_dir) and len(os.listdir(satellite_dir)) > 0:
             logger.info("Transforming satellite imagery to Arcanum style...")
             try:
-                arcanum_satellite_result = arcanum_texturing_agent.transform_satellite_images(satellite_dir=satellite_dir)
+                # Using our safe_tool_call helper function
+                arcanum_satellite_result = safe_tool_call(arcanum_texturing_agent.transform_satellite_images, satellite_dir=satellite_dir)
                 logger.info(arcanum_satellite_result)
             except Exception as e:
                 logger.warning(f"Satellite imagery transformation failed: {str(e)}. Continuing with workflow...")
@@ -1387,7 +1429,9 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
             ]
             for loc, heading in sample_locations:
                 try:
-                    logger.info(data_agent.download_street_view_imagery(location=loc, heading=heading))
+                    # Using our safe_tool_call helper function
+                    result = safe_tool_call(data_agent.download_street_view_imagery, location=loc, heading=heading)
+                    logger.info(result)
                 except Exception as e:
                     logger.warning(f"Street view download failed: {str(e)}. Continuing with workflow...")
         else:
@@ -1408,7 +1452,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         if os.path.exists(street_view_dir):
             logger.info("Transforming street view imagery to Arcanum style...")
             try:
-                arcanum_street_view_result = arcanum_texturing_agent.transform_street_view_images(street_view_dir=street_view_dir)
+                # Using our safe_tool_call helper function
+                arcanum_street_view_result = safe_tool_call(arcanum_texturing_agent.transform_street_view_images, street_view_dir=street_view_dir)
                 logger.info(arcanum_street_view_result)
             except Exception as e:
                 logger.warning(f"Street view transformation failed: {str(e)}. Continuing with workflow...")
@@ -1417,9 +1462,13 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         logger.info("Step 2: Terrain Generation")
         try:
             lidar_file = os.path.join(base_dir, "raw_data/lidar/arcanum_lidar.laz")
-            logger.info(terrain_agent.process_lidar_to_dtm(lidar_file=lidar_file))
+            # Using our safe_tool_call helper function
+            result1 = safe_tool_call(terrain_agent.process_lidar_to_dtm, lidar_file=lidar_file)
+            logger.info(result1)
+
             dtm_file = os.path.join(base_dir, "processed_data/terrain/arcanum_dtm.tif")
-            logger.info(terrain_agent.export_terrain_for_unity(dtm_file=dtm_file))
+            result2 = safe_tool_call(terrain_agent.export_terrain_for_unity, dtm_file=dtm_file)
+            logger.info(result2)
         except Exception as e:
             logger.warning(f"Terrain generation failed: {str(e)}. Continuing with workflow...")
 
@@ -1429,7 +1478,9 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
             districts = ["Westminster", "City_of_London", "Southwark"]
             for district in districts:
                 try:
-                    logger.info(building_agent.process_buildings_batch(district=district))
+                    # Using our safe_tool_call helper function
+                    result = safe_tool_call(building_agent.process_buildings_batch, district=district)
+                    logger.info(result)
                 except Exception as district_error:
                     logger.warning(f"Building generation for district {district} failed: {str(district_error)}. Continuing with next district...")
         except Exception as e:
@@ -1445,7 +1496,9 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
             ]
             for landmark_id, height in landmarks:
                 try:
-                    logger.info(building_agent.generate_building_from_footprint(building_id=landmark_id, height=height))
+                    # Using our safe_tool_call helper function
+                    result = safe_tool_call(building_agent.generate_building_from_footprint, building_id=landmark_id, height=height)
+                    logger.info(result)
                 except Exception as landmark_error:
                     logger.warning(f"Landmark building generation for {landmark_id} failed: {str(landmark_error)}. Continuing with next landmark...")
         except Exception as e:
@@ -1496,17 +1549,25 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
                         reference_path = reference_images.get(building_type, {}).get(era, None)
                         if reference_path and os.path.exists(reference_path):
                             logger.info(f"Generating facade texture for {building_type} ({era}) using reference image")
-                            result = arcanum_texturing_agent.generate_facade_texture(building_type=building_type, era=era, reference_image_path=reference_path)
+                            # Using our safe_tool_call helper function
+                            result = safe_tool_call(arcanum_texturing_agent.generate_facade_texture,
+                                                   building_type=building_type,
+                                                   era=era,
+                                                   reference_image_path=reference_path)
                         else:
                             logger.info(f"Generating facade texture for {building_type} ({era}) without reference image")
-                            result = arcanum_texturing_agent.generate_facade_texture(building_type=building_type, era=era)
+                            result = safe_tool_call(arcanum_texturing_agent.generate_facade_texture,
+                                                  building_type=building_type,
+                                                  era=era)
                         logger.info(result)
                     except Exception as texture_error:
                         logger.warning(f"Facade texture generation for {building_type} ({era}) failed: {str(texture_error)}. Continuing with next texture...")
 
             # Create Arcanum-styled material library
             try:
-                logger.info(arcanum_texturing_agent.create_material_library(tool_input={}))
+                # Using our safe_tool_call helper function
+                result = safe_tool_call(arcanum_texturing_agent.create_material_library)
+                logger.info(result)
             except Exception as material_error:
                 logger.warning(f"Material library creation failed: {str(material_error)}. Continuing with workflow...")
         except Exception as e:
@@ -1515,8 +1576,12 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         # Step 5: Unity Integration
         logger.info("Step 5: Unity Integration")
         try:
-            logger.info(unity_agent.prepare_unity_terrain_data(tool_input={}))
-            logger.info(unity_agent.create_streaming_setup(tool_input={}))
+            # Using our safe_tool_call helper function
+            result1 = safe_tool_call(unity_agent.prepare_unity_terrain_data)
+            logger.info(result1)
+
+            result2 = safe_tool_call(unity_agent.create_streaming_setup)
+            logger.info(result2)
         except Exception as e:
             logger.warning(f"Unity integration failed: {str(e)}. Continuing with workflow...")
 
