@@ -3,7 +3,10 @@
     "allow": [
       "Bash(git clone:*)",
       "Bash(grep:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(chmod:*)",
+      "Bash(mkdir:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }
