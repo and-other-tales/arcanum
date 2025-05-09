@@ -221,8 +221,8 @@ run_generator() {
     # Set environment variable for generator.py to use the right ComfyUI path
     export COMFYUI_PATH="$comfyui_path"
 
-    # Run the fixed generator.py that doesn't have validation errors
-    python3 "$ARCANUM_DIR/fixed_generator.py" --comfyui-path="$comfyui_path"
+    # Run the generator.py with full ComfyUI integration
+    python3 "$ARCANUM_DIR/generator.py" --comfyui-path="$comfyui_path"
 }
 
 # Main workflow
@@ -290,14 +290,18 @@ main() {
     
     # Set up ComfyUI
     setup_comfyui "$COMFYUI_PATH"
-    
+
+    # Download required Flux models if needed
+    echo -e "${BLUE}Checking for required X-Labs Flux models...${NC}"
+    python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH"
+
     # Run generator
     echo ""
     echo -e "${BLUE}Setup completed!${NC}"
     echo -e "${GREEN}Do you want to run the Arcanum generator now?${NC}"
     read -p "Run generator? (y/n): " -n 1 -r
     echo ""
-    
+
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         # Run the generator with the configured ComfyUI path
         run_generator "$COMFYUI_PATH"
@@ -318,7 +322,11 @@ if [ "$1" = "--run" ]; then
         echo -e "${RED}Error: ComfyUI not installed. Please run ./start.sh without arguments first.${NC}"
         exit 1
     fi
-    
+
+    # Download required Flux models if needed
+    echo -e "${BLUE}Checking for required X-Labs Flux models...${NC}"
+    python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH"
+
     # Run generator with arguments except --run
     shift  # Remove --run from arguments
     run_generator "$COMFYUI_PATH"
