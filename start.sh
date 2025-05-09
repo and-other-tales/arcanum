@@ -214,15 +214,15 @@ setup_comfyui() {
 # Function to run generator.py with appropriate ComfyUI path
 run_generator() {
     local comfyui_path=$1
-    
+
     echo -e "${BLUE}Starting Arcanum generator...${NC}"
     echo -e "${YELLOW}Using ComfyUI at: $comfyui_path${NC}"
-    
+
     # Set environment variable for generator.py to use the right ComfyUI path
     export COMFYUI_PATH="$comfyui_path"
-    
-    # Run generator.py
-    python3 "$ARCANUM_DIR/generator.py" --comfyui-path="$comfyui_path" "$@"
+
+    # Run generator.py - fixed to use the comfyui path with a proper flag
+    python3 "$ARCANUM_DIR/generator.py" --comfyui-path="$comfyui_path"
 }
 
 # Main workflow
@@ -299,8 +299,8 @@ main() {
     echo ""
     
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        # Pass any additional arguments to the generator
-        run_generator "$COMFYUI_PATH" "${@:1}"
+        # Run the generator with the configured ComfyUI path
+        run_generator "$COMFYUI_PATH"
     else
         echo -e "${YELLOW}You can run the generator later with:${NC}"
         echo "./start.sh --run"
@@ -321,7 +321,7 @@ if [ "$1" = "--run" ]; then
     
     # Run generator with arguments except --run
     shift  # Remove --run from arguments
-    run_generator "$COMFYUI_PATH" "$@"
+    run_generator "$COMFYUI_PATH"
 else
     # Run main setup workflow
     main "$@"

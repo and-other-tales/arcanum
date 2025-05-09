@@ -1549,6 +1549,7 @@ def main():
     parser.add_argument("--output", help="Output directory", default="./arcanum_3d_output")
     parser.add_argument("--bounds", help="Area bounds (north,south,east,west)", default="560000,500000,560000,500000")
     parser.add_argument("--skip-cloud", help="Skip Google Cloud operations", action="store_true")
+    parser.add_argument("--comfyui-path", help="Path to ComfyUI installation")
     args = parser.parse_args()
 
     # Update config with command line arguments
