@@ -6,7 +6,10 @@
       "Bash(touch:*)",
       "Bash(chmod:*)",
       "Bash(mkdir:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(pip install:*)",
+      "Bash(cp:*)",
+      "Bash(pip index versions:*)"
     ],
     "deny": []
   }
