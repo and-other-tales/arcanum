@@ -23,6 +23,7 @@ echo "   / \   _ __ ___ __ _ _ __  _   _ _ __ ___  "
 echo "  / _ \ | '__/ __/ _' | '_ \| | | | '_ ' _ \ "
 echo " / ___ \| | | (_| (_| | | | | |_| | | | | | |"
 echo "/_/   \_\_|  \___\__,_|_| |_|\__,_|_| |_| |_|"
+echo "          Arcanum Map Builder [Beta]"
 echo -e "${NC}"
 echo -e "${YELLOW}Arcanum Setup and Startup Script${NC}"
 echo ""
@@ -40,10 +41,18 @@ package_installed() {
 # Function to check for GPU availability
 check_gpu() {
     echo -e "${BLUE}Checking for GPU availability...${NC}"
-    
+
     # Create temporary Python script to check GPU
     cat > /tmp/gpu_check.py << 'EOF'
+import os
 import sys
+import subprocess
+
+# Check environment variables
+cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES')
+torch_device = os.environ.get('TORCH_DEVICE')
+
+# First try torch if available
 try:
     import torch
     if torch.cuda.is_available():
@@ -58,26 +67,37 @@ try:
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         print("MPS (Apple Silicon GPU) available: Yes")
         sys.exit(0)  # GPU available (Apple Silicon)
+except ImportError:
+    print("PyTorch not installed, checking alternative methods")
+
+# Try to run nvidia-smi as fallback
+try:
+    nvidia_output = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                                           stderr=subprocess.STDOUT,
+                                           universal_newlines=True)
+    print("NVIDIA-SMI detected GPU:")
+    print(nvidia_output)
+    sys.exit(0)  # GPU detected
+except (subprocess.CalledProcessError, FileNotFoundError):
+    # Try environment variables as last resort
+    if (cuda_visible is not None and cuda_visible != '-1') or (torch_device is not None and 'cuda' in torch_device):
+        print("GPU detected via environment variables")
+        sys.exit(0)  # GPU detected via env vars
     else:
         print("No GPU acceleration available")
         sys.exit(1)  # No GPU
-except ImportError:
-    print("PyTorch not installed")
-    sys.exit(2)  # PyTorch not installed
 EOF
 
     # Run the GPU check script
     python3 /tmp/gpu_check.py
     GPU_STATUS=$?
-    
+
     rm /tmp/gpu_check.py
-    
+
     if [ $GPU_STATUS -eq 0 ]; then
         return 0  # GPU available
-    elif [ $GPU_STATUS -eq 1 ]; then
-        return 1  # No GPU
     else
-        return 2  # PyTorch not installed
+        return 1  # No GPU
     fi
 }
 
