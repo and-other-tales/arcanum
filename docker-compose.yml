@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  arcanum-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arcanum-generator
+    volumes:
+      # Mount local output directory
+      - ./output:/app/output
+      # Mount Google Cloud credentials (optional if using Google Cloud APIs)
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-~/.config/gcloud/application_default_credentials.json}:/app/credentials.json:ro
+      # Mount .env file
+      - ./.env:/app/.env:ro
+      # Mount ComfyUI models directory (optional, if models already downloaded)
+      - ${COMFYUI_MODELS_DIR:-./models}:/app/ComfyUI/models:rw
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      # Expose ComfyUI port (optional, for debugging)
+      - "8188:8188"
+    # Default command - can be overridden via command line
+    command: --output /app/output/arcanum_3d_output
+
+  # Optional service for running ComfyUI separately (for debugging/development)
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arcanum-comfyui
+    volumes:
+      - ./output:/app/output
+      - ${COMFYUI_MODELS_DIR:-./models}:/app/ComfyUI/models:rw
+    environment:
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8188:8188"
+    command: bash -c "/app/download_models.sh && cd /app/ComfyUI && python3 main.py --listen 0.0.0.0 --port 8188"
+    profiles:
+      - dev  # Only run this service when specified with docker-compose --profile dev up

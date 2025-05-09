@@ -2,9 +2,9 @@
 """
 Arcanum City Gen for Unity
 ------------------------
-This script orchestrates the generation of a photorealistic 1:1 scale model of Arcanum (preSDXL
-for exploration in Unity3D, utilizing LangChain for workflow orchestration and
-various open-source tools and Google Cloud APIs for data processing.
+This script orchestrates the generation of a non-photorealistic, stylized 1:1 scale model of Arcanum
+for exploration in Unity3D, utilizing LangChain for workflow orchestration,
+HuggingFace's diffusers for stylization, and various open-source tools and Google Cloud APIs for data processing.
 """
 
 import os
@@ -13,7 +13,8 @@ import json
 import logging
 import argparse
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
+import io
 
 # LangChain & LangGraph imports
 from langchain_core.messages import AIMessage, HumanMessage
@@ -39,6 +40,13 @@ from shapely.geometry import Polygon, LineString, Point
 from google.cloud import storage
 from google.cloud import vision
 from google.cloud import earthengine
+
+# Diffusers and image processing imports
+import torch
+from PIL import Image
+
+# Import our custom ComfyUI integration
+from comfyui_integration import ArcanumComfyUIStyleTransformer
 
 # Configuration
 logging.basicConfig(
@@ -350,48 +358,260 @@ class BuildingGenerationAgent:
             logger.error(f"Error processing buildings batch: {str(e)}")
             return f"Failed to process buildings batch: {str(e)}"
 
+# Arcanum Style Transformer Class
+class ArcanumStyleTransformer:
+    """Class responsible for transforming real-life images into Arcanum style using diffusers library."""
+
+    def __init__(self, device: str = None, model_id: str = "black-forest-labs/FLUX.1-dev", max_batch_size: int = 4):
+        """Initialize the ArcanumStyleTransformer.
+
+        Args:
+            device: The torch device to use ("cuda", "cpu", etc.). If None, will use CUDA if available.
+            model_id: HuggingFace model ID for the Flux model to use.
+            max_batch_size: Maximum number of images to process in a single batch.
+        """
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = device
+
+        logger.info(f"Initializing ArcanumStyleTransformer with device: {self.device}")
+
+        # Set the appropriate torch dtype based on device
+        self.dtype = torch.float16 if self.device == "cuda" else torch.float32
+
+        # Load Flux img2img pipeline
+        logger.info(f"Loading Flux model: {model_id}")
+        self.pipeline = FluxImg2ImgPipeline.from_pretrained(
+            model_id,
+            torch_dtype=self.dtype
+        )
+        self.pipeline = self.pipeline.to(self.device)
+
+        # Store configuration
+        self.max_batch_size = max_batch_size
+        self.initialized = True
+        logger.info("ArcanumStyleTransformer initialization complete")
+
+    def transform_image(self,
+                        image_path: str,
+                        output_path: str,
+                        prompt: str = "arcanum gothic victorian fantasy steampunk architecture, alternative London, dark atmosphere, ornate details, imposing structure, foggy, mystical",
+                        negative_prompt: str = "photorealistic, modern, contemporary, bright colors, clear sky",
+                        strength: float = 0.75,
+                        num_inference_steps: int = 20) -> str:
+        """Transform a real-life image into Arcanum style.
+
+        Args:
+            image_path: Path to the input image.
+            output_path: Path to save the transformed image.
+            prompt: The prompt to guide the image transformation.
+            negative_prompt: Negative prompt to guide what to avoid in the image.
+            strength: Strength of the transformation (0.0 to 1.0).
+            num_inference_steps: Number of denoising steps to perform.
+
+        Returns:
+            Path to the transformed image.
+        """
+        try:
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            # Load image
+            if isinstance(image_path, str):
+                init_image = load_image(image_path)
+            elif isinstance(image_path, Image.Image):
+                init_image = image_path
+            else:
+                raise ValueError(f"Unsupported image type: {type(image_path)}")
+
+            # Generate transformation
+            logger.info(f"Transforming image to Arcanum style: {image_path}")
+            arcanum_image = self.pipeline(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                image=init_image,
+                num_inference_steps=num_inference_steps,
+                strength=strength,
+                guidance_scale=7.5,
+            ).images[0]
+
+            # Save the transformed image
+            arcanum_image.save(output_path)
+            logger.info(f"Arcanum-styled image saved to: {output_path}")
+
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Error transforming image to Arcanum style: {str(e)}")
+            return f"Failed to transform image: {str(e)}"
+
+    def batch_transform_images(self,
+                              image_paths: List[str],
+                              output_dir: str,
+                              prompt: str = "arcanum gothic victorian fantasy steampunk architecture, alternative London, dark atmosphere, ornate details, imposing structure, foggy, mystical",
+                              negative_prompt: str = "photorealistic, modern, contemporary, bright colors, clear sky",
+                              strength: float = 0.75,
+                              num_inference_steps: int = 20) -> List[str]:
+        """Transform multiple images in batches.
+
+        Args:
+            image_paths: List of paths to input images.
+            output_dir: Directory to save transformed images.
+            prompt: The prompt to guide the image transformation.
+            negative_prompt: Negative prompt to guide what to avoid in the image.
+            strength: Strength of the transformation (0.0 to 1.0).
+            num_inference_steps: Number of denoising steps to perform.
+
+        Returns:
+            List of paths to transformed images.
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        output_paths = []
+
+        # Process images in batches
+        for i in range(0, len(image_paths), self.max_batch_size):
+            batch = image_paths[i:i + self.max_batch_size]
+            logger.info(f"Processing batch {i//self.max_batch_size + 1} of {len(image_paths)//self.max_batch_size + 1}")
+
+            for img_path in batch:
+                img_filename = os.path.basename(img_path)
+                output_path = os.path.join(output_dir, f"arcanum_{img_filename}")
+                result = self.transform_image(
+                    img_path,
+                    output_path,
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    strength=strength,
+                    num_inference_steps=num_inference_steps
+                )
+                output_paths.append(result)
+
+        return output_paths
+
+    def __del__(self):
+        """Clean up resources when the transformer is deleted."""
+        if hasattr(self, 'initialized') and self.initialized:
+            del self.pipeline
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
 # Texturing Agent
-class TexturingAgent:
+class ArcanumTexturingAgent:
     """Agent responsible for creating and applying textures to 3D models."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.input_dir = os.path.join(config["output_directory"], "raw_data")
         self.output_dir = os.path.join(config["output_directory"], "processed_data/textures")
-        
+
+        # Initialize style transformer
+        self.style_transformer = None  # Lazy initialization to save resources
+
+    def _ensure_transformer_initialized(self):
+        """Ensures the style transformer is initialized when needed."""
+        if self.style_transformer is None:
+            # Use ComfyUI integration for X-Labs Flux ControlNet
+            self.style_transformer = ArcanumComfyUIStyleTransformer()
+
     @tool
-    def generate_facade_texture(self, building_type: str, era: str) -> str:
-        """Generate a facade texture based on building type and era."""
+    def generate_arcanum_style_image(self,
+                                     image_path: str,
+                                     prompt: str = None,
+                                     strength: float = 0.75) -> str:
+        """
+        Transform a real-life image into Arcanum style using the Flux model.
+
+        Args:
+            image_path: Path to the input image
+            prompt: Specific prompt to guide the stylization (optional)
+            strength: How strongly to apply the transformation (0.0 to 1.0)
+
+        Returns:
+            Path to the transformed image
+        """
         try:
-            # Placeholder for texture generation logic
-            # In a real implementation, this could use:
-            # - Style transfer from reference images
-            # - Procedural texture generation
-            # - Extraction from street view imagery
-            
+            # Initialize style transformer if needed
+            self._ensure_transformer_initialized()
+
+            # Default prompt for Arcanum style if none provided
+            if prompt is None:
+                prompt = "arcanum gothic victorian fantasy steampunk architecture, alternative London, dark atmosphere, ornate details, imposing structure, foggy, mystical"
+
+            # Process the image filename
+            image_filename = os.path.basename(image_path)
+            output_path = os.path.join(self.output_dir, f"arcanum_{image_filename}")
+
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            # Transform the image
+            return self.style_transformer.transform_image(
+                image_path=image_path,
+                output_path=output_path,
+                prompt=prompt,
+                strength=strength
+            )
+
+        except Exception as e:
+            logger.error(f"Error generating Arcanum style image: {str(e)}")
+            return f"Failed to generate Arcanum style image: {str(e)}"
+
+    @tool
+    def generate_facade_texture(self,
+                                building_type: str,
+                                era: str,
+                                reference_image_path: str = None) -> str:
+        """
+        Generate a facade texture based on building type and era, with Arcanum styling.
+
+        Args:
+            building_type: Type of building (residential, commercial, etc.)
+            era: Architectural era (victorian, georgian, etc.)
+            reference_image_path: Optional path to a reference image
+
+        Returns:
+            Path to the generated facade texture
+        """
+        try:
+            # Initialize style transformer if needed
+            self._ensure_transformer_initialized()
+
+            # Determine output path
             texture_output = os.path.join(self.output_dir, f"facade_{building_type}_{era}.jpg")
-            
-            # Placeholder for demonstration purposes
-            # In a real implementation, this would create an actual texture
-            with open(texture_output, 'w') as f:
-                f.write(f"Facade texture for {building_type} ({era})")
-                
-            return f"Facade texture generated at {texture_output}"
+            os.makedirs(os.path.dirname(texture_output), exist_ok=True)
+
+            # If a reference image is provided, transform it
+            if reference_image_path and os.path.exists(reference_image_path):
+                # Custom prompt based on building type and era
+                prompt = f"arcanum {era} {building_type} building facade, gothic victorian fantasy steampunk architecture, alternative London, dark atmosphere, ornate details, imposing structure"
+
+                return self.style_transformer.transform_image(
+                    image_path=reference_image_path,
+                    output_path=texture_output,
+                    prompt=prompt
+                )
+            else:
+                # For demonstration purposes, create a placeholder
+                # In a real implementation, we would generate a texture from scratch or use a default reference
+                with open(texture_output, 'w') as f:
+                    f.write(f"Arcanum-styled facade texture for {building_type} ({era})")
+
+                return f"Arcanum facade texture generated at {texture_output}"
+
         except Exception as e:
             logger.error(f"Error generating facade texture: {str(e)}")
             return f"Failed to generate facade texture: {str(e)}"
-    
+
     @tool
     def create_material_library(self) -> str:
-        """Create a standard library of PBR materials for London buildings."""
+        """Create a standard library of PBR materials for Arcanum buildings."""
         try:
-            # Placeholder for material library creation
-            # In a real implementation, this would create a set of PBR materials
-            
+            # Create materials directory
             materials_dir = os.path.join(self.output_dir, "materials")
             if not os.path.exists(materials_dir):
                 os.makedirs(materials_dir)
-                
+
             # List of common Arcanum materials
             material_types = [
                 "arcanum_brick_yellow",
@@ -404,23 +624,94 @@ class TexturingAgent:
                 "metal_cladding",
                 "sandstone"
             ]
-            
+
             # Create placeholders for each material
             for material in material_types:
                 material_dir = os.path.join(materials_dir, material)
                 if not os.path.exists(material_dir):
                     os.makedirs(material_dir)
-                
+
                 # Create placeholder files for PBR maps
                 for map_type in ["albedo", "normal", "roughness", "metallic", "ao"]:
                     map_file = os.path.join(material_dir, f"{material}_{map_type}.jpg")
                     with open(map_file, 'w') as f:
                         f.write(f"{material} {map_type} map")
-            
-            return f"Material library created at {materials_dir}"
+
+            return f"Arcanum material library created at {materials_dir}"
         except Exception as e:
             logger.error(f"Error creating material library: {str(e)}")
             return f"Failed to create material library: {str(e)}"
+
+    @tool
+    def transform_street_view_images(self, street_view_dir: str) -> str:
+        """Transform all street view images in a directory to Arcanum style."""
+        try:
+            # Initialize style transformer if needed
+            self._ensure_transformer_initialized()
+
+            # Create output directory
+            arcanum_street_view_dir = os.path.join(self.output_dir, "street_view")
+            if not os.path.exists(arcanum_street_view_dir):
+                os.makedirs(arcanum_street_view_dir)
+
+            # Get all image files in the street view directory
+            image_files = []
+            for root, _, files in os.walk(street_view_dir):
+                for file in files:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        image_files.append(os.path.join(root, file))
+
+            if not image_files:
+                return f"No images found in {street_view_dir}"
+
+            # Process images in batches
+            transformed_paths = self.style_transformer.batch_transform_images(
+                image_paths=image_files,
+                output_dir=arcanum_street_view_dir,
+                prompt="arcanum street view, gothic victorian fantasy steampunk, alternative London, dark atmosphere, ornate building details, foggy streets, gas lamps, mystical"
+            )
+
+            return f"Transformed {len(transformed_paths)} street view images to Arcanum style in {arcanum_street_view_dir}"
+
+        except Exception as e:
+            logger.error(f"Error transforming street view images: {str(e)}")
+            return f"Failed to transform street view images: {str(e)}"
+
+    @tool
+    def transform_satellite_images(self, satellite_dir: str) -> str:
+        """Transform satellite imagery to match Arcanum style."""
+        try:
+            # Initialize style transformer if needed
+            self._ensure_transformer_initialized()
+
+            # Create output directory
+            arcanum_satellite_dir = os.path.join(self.output_dir, "satellite")
+            if not os.path.exists(arcanum_satellite_dir):
+                os.makedirs(arcanum_satellite_dir)
+
+            # Get all image files in the satellite directory
+            image_files = []
+            for root, _, files in os.walk(satellite_dir):
+                for file in files:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff')):
+                        image_files.append(os.path.join(root, file))
+
+            if not image_files:
+                return f"No images found in {satellite_dir}"
+
+            # Process images in batches
+            transformed_paths = self.style_transformer.batch_transform_images(
+                image_paths=image_files,
+                output_dir=arcanum_satellite_dir,
+                prompt="arcanum aerial view, gothic victorian fantasy steampunk city, alternative London, dark atmosphere, fog and mist, intricate cityscape, aerial perspective",
+                strength=0.65  # Use less strength to preserve geographic features
+            )
+
+            return f"Transformed {len(transformed_paths)} satellite images to Arcanum style in {arcanum_satellite_dir}"
+
+        except Exception as e:
+            logger.error(f"Error transforming satellite images: {str(e)}")
+            return f"Failed to transform satellite images: {str(e)}"
 
 # Unity Integration Agent
 class UnityIntegrationAgent:
@@ -500,25 +791,37 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
     """Run the complete Arcanum 3D generation workflow."""
     try:
         logger.info("Starting Arcanum 3D generation workflow")
-        
+
         # Setup project directories
         base_dir = setup_directory_structure()
         logger.info(f"Project initialized at {base_dir}")
-        
+
         # Initialize agents
         data_agent = DataCollectionAgent(config)
         terrain_agent = TerrainGenerationAgent(config)
         building_agent = BuildingGenerationAgent(config)
-        texturing_agent = TexturingAgent(config)
+        arcanum_texturing_agent = ArcanumTexturingAgent(config)
         unity_agent = UnityIntegrationAgent(config)
-        
+
         # Step 1: Data Collection
         logger.info("Step 1: Data Collection")
         logger.info(data_agent.download_osm_data(config["bounds"]))
         logger.info(data_agent.download_lidar_data("Arcanum"))
-        logger.info(data_agent.fetch_google_satellite_imagery(config["bounds"]))
-        
+
+        # Download satellite imagery
+        logger.info("Downloading satellite imagery...")
+        satellite_result = data_agent.fetch_google_satellite_imagery(config["bounds"])
+        logger.info(satellite_result)
+
+        # Transform satellite imagery to Arcanum style
+        satellite_dir = os.path.join(base_dir, "raw_data/satellite")
+        if os.path.exists(satellite_dir):
+            logger.info("Transforming satellite imagery to Arcanum style...")
+            arcanum_satellite_result = arcanum_texturing_agent.transform_satellite_images(satellite_dir)
+            logger.info(arcanum_satellite_result)
+
         # Sample street view collection - in production, this would be done systematically
+        logger.info("Downloading street view imagery...")
         sample_locations = [
             ((51.5074, -0.1278), 0),    # Trafalgar Square
             ((51.5007, -0.1246), 90),   # Big Ben
@@ -526,20 +829,27 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         ]
         for loc, heading in sample_locations:
             logger.info(data_agent.download_street_view_imagery(loc, heading))
-        
+
+        # Transform street view imagery to Arcanum style
+        street_view_dir = os.path.join(base_dir, "raw_data/street_view")
+        if os.path.exists(street_view_dir):
+            logger.info("Transforming street view imagery to Arcanum style...")
+            arcanum_street_view_result = arcanum_texturing_agent.transform_street_view_images(street_view_dir)
+            logger.info(arcanum_street_view_result)
+
         # Step 2: Terrain Generation
         logger.info("Step 2: Terrain Generation")
         lidar_file = os.path.join(base_dir, "raw_data/lidar/arcanum_lidar.laz")
         logger.info(terrain_agent.process_lidar_to_dtm(lidar_file))
         dtm_file = os.path.join(base_dir, "processed_data/terrain/arcanum_dtm.tif")
         logger.info(terrain_agent.export_terrain_for_unity(dtm_file))
-        
+
         # Step 3: Building Generation
         logger.info("Step 3: Building Generation")
         districts = ["Westminster", "City_of_London", "Southwark"]
         for district in districts:
             logger.info(building_agent.process_buildings_batch(district))
-        
+
         # Generate some landmark buildings individually
         landmarks = [
             ("big_ben", 96.0),
@@ -549,24 +859,66 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         ]
         for landmark_id, height in landmarks:
             logger.info(building_agent.generate_building_from_footprint(landmark_id, height))
-        
+
         # Step 4: Texturing
-        logger.info("Step 4: Texturing")
+        logger.info("Step 4: Arcanum Texturing")
+
+        # Generate Arcanum-styled facade textures for different building types and eras
+        logger.info("Generating Arcanum-styled facade textures...")
         building_types = ["residential", "commercial", "historical", "modern"]
         eras = ["victorian", "georgian", "modern", "postwar"]
+
+        # Reference images for each building type - in a real implementation,
+        # these would be paths to actual reference images of facades
+        reference_images = {
+            "residential": {
+                "victorian": os.path.join(street_view_dir, "residential_victorian_reference.jpg"),
+                "georgian": os.path.join(street_view_dir, "residential_georgian_reference.jpg"),
+                "modern": os.path.join(street_view_dir, "residential_modern_reference.jpg"),
+                "postwar": os.path.join(street_view_dir, "residential_postwar_reference.jpg")
+            },
+            "commercial": {
+                "victorian": os.path.join(street_view_dir, "commercial_victorian_reference.jpg"),
+                "georgian": os.path.join(street_view_dir, "commercial_georgian_reference.jpg"),
+                "modern": os.path.join(street_view_dir, "commercial_modern_reference.jpg"),
+                "postwar": os.path.join(street_view_dir, "commercial_postwar_reference.jpg")
+            },
+            "historical": {
+                "victorian": os.path.join(street_view_dir, "historical_victorian_reference.jpg"),
+                "georgian": os.path.join(street_view_dir, "historical_georgian_reference.jpg"),
+                "modern": os.path.join(street_view_dir, "historical_modern_reference.jpg"),
+                "postwar": os.path.join(street_view_dir, "historical_postwar_reference.jpg")
+            },
+            "modern": {
+                "victorian": os.path.join(street_view_dir, "modern_victorian_reference.jpg"),
+                "georgian": os.path.join(street_view_dir, "modern_georgian_reference.jpg"),
+                "modern": os.path.join(street_view_dir, "modern_modern_reference.jpg"),
+                "postwar": os.path.join(street_view_dir, "modern_postwar_reference.jpg")
+            }
+        }
+
         for building_type in building_types:
             for era in eras:
-                logger.info(texturing_agent.generate_facade_texture(building_type, era))
-        
-        logger.info(texturing_agent.create_material_library())
-        
+                # Get reference image path if it exists
+                reference_path = reference_images.get(building_type, {}).get(era, None)
+                if reference_path and os.path.exists(reference_path):
+                    logger.info(f"Generating facade texture for {building_type} ({era}) using reference image")
+                    result = arcanum_texturing_agent.generate_facade_texture(building_type, era, reference_path)
+                else:
+                    logger.info(f"Generating facade texture for {building_type} ({era}) without reference image")
+                    result = arcanum_texturing_agent.generate_facade_texture(building_type, era)
+                logger.info(result)
+
+        # Create Arcanum-styled material library
+        logger.info(arcanum_texturing_agent.create_material_library())
+
         # Step 5: Unity Integration
         logger.info("Step 5: Unity Integration")
         logger.info(unity_agent.prepare_unity_terrain_data())
         logger.info(unity_agent.create_streaming_setup())
-        
+
         logger.info("Arcanum 3D generation workflow completed successfully")
-        
+
         # Return a summary
         return {
             "status": "success",
@@ -579,7 +931,7 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
                 "Add environmental effects (lighting, weather)"
             ]
         }
-    
+
     except Exception as e:
         logger.error(f"Workflow failed: {str(e)}")
         return {
