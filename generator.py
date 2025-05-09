@@ -57,7 +57,7 @@ PROJECT_CONFIG = {
     "project_name": "Arcanum3D",
     "output_directory": "./arcanum_3d_output",
     "coordinate_system": "EPSG:27700",  # British National Grid
-    "center_point": (530000, 180000),   # Approximate center of Arcanum
+    "center_point": (530700, 177800),   # Approximate center of Arcanum
     "bounds": {
         "north": 560000,  # Northern extent in BNG
         "south": 500000,  # Southern extent in BNG
