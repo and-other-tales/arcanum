@@ -20,7 +20,9 @@
       "Bash(./start.sh:*)",
       "Bash(ln:*)",
       "Bash(env)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(mv:*)",
+      "WebFetch(domain:huggingface.co)"
     ],
     "deny": []
   }

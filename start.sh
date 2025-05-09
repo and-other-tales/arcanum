@@ -160,6 +160,14 @@ install_dependencies() {
     echo -e "${YELLOW}Installing dependencies from requirements_no_gdal.txt...${NC}"
     pip3 install -r "$ARCANUM_DIR/requirements_no_gdal.txt"
     
+    # Install diffusers and controlnet_aux for FLUX.1-Canny-dev support
+    echo -e "${YELLOW}Installing diffusers and controlnet_aux for FLUX.1-Canny-dev support...${NC}"
+    pip3 install -U diffusers controlnet_aux
+
+    # Install transformers for BLIP-2 image captioning
+    echo -e "${YELLOW}Installing transformers for BLIP-2 image captioning...${NC}"
+    pip3 install -U transformers accelerate
+
     echo -e "${GREEN}Dependencies installed successfully.${NC}"
 }
 
@@ -196,18 +204,43 @@ install_comfyui_cpu() {
 # Function to set up ComfyUI and required models
 setup_comfyui() {
     local comfyui_path=$1
-    
+
     echo -e "${BLUE}Setting up ComfyUI environment...${NC}"
-    
+
+    # Ensure ComfyUI directory exists
+    if [ ! -d "$comfyui_path" ]; then
+        echo -e "${YELLOW}ComfyUI directory doesn't exist. Creating it...${NC}"
+        mkdir -p "$comfyui_path"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Failed to create directory. Trying with sudo...${NC}"
+            sudo mkdir -p "$comfyui_path"
+            sudo chown -R $(whoami) "$comfyui_path"
+        fi
+    fi
+
+    # Check if we have write permissions to the directory
+    if [ ! -w "$comfyui_path" ]; then
+        echo -e "${YELLOW}No write permission to ComfyUI directory. Fixing permissions...${NC}"
+        sudo chown -R $(whoami) "$comfyui_path"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Failed to fix permissions. Please run the script with sudo or fix permissions manually.${NC}"
+            return 1
+        fi
+    fi
+
     # Create required directories
     mkdir -p "$comfyui_path/models/x-labs/Flux"
-    
+    mkdir -p "$comfyui_path/models/clip_vision"
+    mkdir -p "$comfyui_path/models/T5Transformer"
+    mkdir -p "$comfyui_path/models/vae"
+    mkdir -p "$comfyui_path/models/xlabs/controlnets"
+
     # Install additional requirements if needed
     if [ -f "$comfyui_path/requirements.txt" ]; then
         echo -e "${YELLOW}Installing ComfyUI requirements...${NC}"
         pip3 install -r "$comfyui_path/requirements.txt"
     fi
-    
+
     echo -e "${GREEN}ComfyUI setup completed.${NC}"
 }
 
@@ -291,9 +324,26 @@ main() {
     # Set up ComfyUI
     setup_comfyui "$COMFYUI_PATH"
 
+    # Check for Hugging Face token
+    if [ -z "${HUGGINGFACE_TOKEN}" ]; then
+        echo -e "${YELLOW}No Hugging Face token found in environment.${NC}"
+        echo -e "${YELLOW}Some models may fail to download without authentication.${NC}"
+        echo -e "${YELLOW}You can provide a token now or press Enter to continue without one.${NC}"
+        read -p "Enter Hugging Face token (or press Enter to skip): " HF_TOKEN
+
+        if [ ! -z "$HF_TOKEN" ]; then
+            export HUGGINGFACE_TOKEN="$HF_TOKEN"
+            echo -e "${GREEN}Token set for this session.${NC}"
+        else
+            echo -e "${YELLOW}Continuing without token. Some downloads may fail.${NC}"
+        fi
+    else
+        echo -e "${GREEN}Using Hugging Face token from environment.${NC}"
+    fi
+
     # Download required Flux models if needed
     echo -e "${BLUE}Checking for required X-Labs Flux models...${NC}"
-    python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH"
+    python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH" --token="$HUGGINGFACE_TOKEN"
 
     # Run generator
     echo ""
@@ -323,9 +373,26 @@ if [ "$1" = "--run" ]; then
         exit 1
     fi
 
+    # Check for Hugging Face token
+    if [ -z "${HUGGINGFACE_TOKEN}" ]; then
+        echo -e "${YELLOW}No Hugging Face token found in environment.${NC}"
+        echo -e "${YELLOW}Some models may fail to download without authentication.${NC}"
+        echo -e "${YELLOW}You can provide a token now or press Enter to continue without one.${NC}"
+        read -p "Enter Hugging Face token (or press Enter to skip): " HF_TOKEN
+
+        if [ ! -z "$HF_TOKEN" ]; then
+            export HUGGINGFACE_TOKEN="$HF_TOKEN"
+            echo -e "${GREEN}Token set for this session.${NC}"
+        else
+            echo -e "${YELLOW}Continuing without token. Some downloads may fail.${NC}"
+        fi
+    else
+        echo -e "${GREEN}Using Hugging Face token from environment.${NC}"
+    fi
+
     # Download required Flux models if needed
     echo -e "${BLUE}Checking for required X-Labs Flux models...${NC}"
-    python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH"
+    python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH" --token="$HUGGINGFACE_TOKEN"
 
     # Run generator with arguments except --run
     shift  # Remove --run from arguments
