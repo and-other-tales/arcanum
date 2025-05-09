@@ -26,6 +26,20 @@ from langchain.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.tools import BaseTool
+from functools import wraps
+
+# Create a custom tool decorator that properly handles self parameter for class methods
+def class_tool(func):
+    """Decorator for class methods that should be exposed as tools.
+    This wrapper ensures that 'self' parameter is properly handled.
+    """
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Call the original function with self and all arguments
+        return func(self, *args, **kwargs)
+
+    # Apply the standard tool decorator
+    return tool(wrapper)
 
 # Suppress LangChainDeprecationWarning for BaseTool.__call__
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="langchain")
@@ -35,30 +49,72 @@ def safe_tool_call(tool_obj, **kwargs):
     """Safely call a LangChain tool with backward compatibility.
 
     This function attempts to call a tool using different methods to handle
-    both older and newer versions of LangChain.
+    both older and newer versions of LangChain. It also handles validation errors
+    by providing default values for certain tool parameters.
 
     Args:
         tool_obj: The LangChain tool to call
         **kwargs: The arguments to pass to the tool
 
     Returns:
-        The result from the tool invocation
+        The result from the tool invocation or error message
     """
+    # Special case handling for known tool calls that need to be populated with defaults
+    # Get the tool name for specific handling
+    tool_name = getattr(tool_obj, "__name__", "") or str(tool_obj).split(" ")[0]
+
+    # Add any necessary default parameters based on tool name
+    if tool_name == "download_osm_data" and "self" not in kwargs:
+        # Default the 'self' parameter which seems to be required by the validation
+        kwargs["self"] = {}
+    elif tool_name == "download_lidar_data" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "fetch_google_satellite_imagery" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "transform_satellite_images" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "download_street_view_imagery" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "transform_street_view_images" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "process_lidar_to_dtm" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "export_terrain_for_unity" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "process_buildings_batch" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "generate_building_from_footprint" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "generate_facade_texture" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "create_material_library" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "prepare_unity_terrain_data" and "self" not in kwargs:
+        kwargs["self"] = {}
+    elif tool_name == "create_streaming_setup" and "self" not in kwargs:
+        kwargs["self"] = {}
+
+    # Now attempt to call the tool with the enhanced parameters
     try:
         # First try direct call (older style, generates deprecation warning)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             return tool_obj(**kwargs)
-    except TypeError:
+    except TypeError as e:
+        logger.debug(f"Direct call failed for {tool_name}: {str(e)}")
         try:
             # Next try .invoke() without input wrapper (newer style)
             return tool_obj.invoke(**kwargs)
-        except TypeError:
+        except TypeError as e:
+            logger.debug(f"Invoke call failed for {tool_name}: {str(e)}")
             try:
                 # Finally try .invoke() with input wrapper (pydantic style)
                 return tool_obj.invoke(input=kwargs)
             except Exception as e:
-                # If all attempts fail, return a message about the error
+                # Log detailed error information for debugging
+                logger.error(f"Tool invocation failed for {tool_name}: {str(e)}")
+                logger.error(f"Arguments provided: {kwargs}")
+                # Provide a meaningful error message
                 return f"Tool invocation failed: {str(e)}"
 
 # Geographic data processing
@@ -86,9 +142,15 @@ except ImportError:
 # import torch - commented out for testing
 from PIL import Image
 
-# Import our custom ComfyUI integration - commented out for testing
-# Fix path if needed: from integration_tools.comfyui_integration import ArcanumComfyUIStyleTransformer
-ArcanumComfyUIStyleTransformer = None  # Placeholder
+# Import our custom ComfyUI integration
+try:
+    from integration_tools.comfyui_integration import ComfyUIStyleTransformer
+    COMFYUI_INTEGRATION_AVAILABLE = True
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.warning("ComfyUI integration import failed. Style transformation features will be disabled.")
+    COMFYUI_INTEGRATION_AVAILABLE = False
+    ComfyUIStyleTransformer = None
 
 # Configuration
 logging.basicConfig(
@@ -184,7 +246,7 @@ class DataCollectionAgent:
         else:
             self.llm = None
         
-    @tool
+    @class_tool
     def download_osm_data(self, bounds: Dict[str, float]) -> str:
         """Download OpenStreetMap data for the specified area."""
         try:
@@ -237,7 +299,7 @@ class DataCollectionAgent:
             logger.error(f"Error downloading OSM data: {str(e)}")
             return f"Failed to download OSM data: {str(e)}"
     
-    @tool
+    @class_tool
     def download_lidar_data(self, region: str, resolution: str = "1m") -> str:
         """
         Download LiDAR data from UK Environment Agency Defra survey.
@@ -393,7 +455,7 @@ class DataCollectionAgent:
             logger.error(f"Error downloading LiDAR data: {str(e)}")
             return f"Failed to download LiDAR data: {str(e)}"
     
-    @tool
+    @class_tool
     def fetch_google_satellite_imagery(self, bounds: Dict[str, float]) -> str:
         """
         Fetch satellite imagery from Google Earth Engine.
@@ -715,7 +777,7 @@ class DataCollectionAgent:
 
             return f"Failed to fetch satellite imagery: {str(e)}. Error report created at {error_path}"
     
-    @tool
+    @class_tool
     def download_street_view_imagery(self, location: Tuple[float, float], heading: int = 0, pitch: int = 0, fov: int = 90) -> str:
         """
         Download Street View imagery for a given location using Google Street View API.
@@ -823,7 +885,7 @@ class TerrainGenerationAgent:
         self.input_dir = os.path.join(config["output_directory"], "raw_data")
         self.output_dir = os.path.join(config["output_directory"], "processed_data/terrain")
         
-    @tool
+    @class_tool
     def process_lidar_to_dtm(self, lidar_file: str) -> str:
         """Process LiDAR point cloud to generate a Digital Terrain Model."""
         try:
@@ -845,7 +907,7 @@ class TerrainGenerationAgent:
             logger.error(f"Error processing LiDAR data: {str(e)}")
             return f"Failed to process LiDAR data: {str(e)}"
     
-    @tool
+    @class_tool
     def export_terrain_for_unity(self, dtm_file: str) -> str:
         """Convert processed DTM to Unity-compatible heightmaps."""
         try:
@@ -878,7 +940,7 @@ class BuildingGenerationAgent:
         self.input_dir = os.path.join(config["output_directory"], "raw_data")
         self.output_dir = os.path.join(config["output_directory"], "3d_models/buildings")
         
-    @tool
+    @class_tool
     def generate_building_from_footprint(self, building_id: str, height: float) -> str:
         """Generate a 3D building model from a footprint and height."""
         try:
@@ -900,7 +962,7 @@ class BuildingGenerationAgent:
             logger.error(f"Error generating building: {str(e)}")
             return f"Failed to generate building: {str(e)}"
     
-    @tool
+    @class_tool
     def process_buildings_batch(self, district: str) -> str:
         """Process all buildings in a district."""
         try:
@@ -1066,10 +1128,20 @@ class ArcanumTexturingAgent:
         """Ensures the style transformer is initialized when needed."""
         if self.style_transformer is None:
             # Use ComfyUI integration for X-Labs Flux ControlNet
-            # Commented out for testing
-            self.style_transformer = None
+            if COMFYUI_INTEGRATION_AVAILABLE:
+                comfyui_path = self.config.get("comfyui_path", "./ComfyUI")
+                logger.info(f"Initializing style transformer with ComfyUI at: {comfyui_path}")
+                try:
+                    self.style_transformer = ComfyUIStyleTransformer(comfyui_path=comfyui_path)
+                    logger.info("Style transformer initialized successfully")
+                except Exception as e:
+                    logger.error(f"Failed to initialize style transformer: {str(e)}")
+                    self.style_transformer = None
+            else:
+                logger.warning("Style transformer not available - ComfyUI integration not imported")
+                self.style_transformer = None
 
-    @tool
+    @class_tool
     def generate_arcanum_style_image(self,
                                      image_path: str,
                                      prompt: str = None,
@@ -1112,7 +1184,7 @@ class ArcanumTexturingAgent:
             logger.error(f"Error generating Arcanum style image: {str(e)}")
             return f"Failed to generate Arcanum style image: {str(e)}"
 
-    @tool
+    @class_tool
     def generate_facade_texture(self,
                                 building_type: str,
                                 era: str,
@@ -1158,7 +1230,7 @@ class ArcanumTexturingAgent:
             logger.error(f"Error generating facade texture: {str(e)}")
             return f"Failed to generate facade texture: {str(e)}"
 
-    @tool
+    @class_tool
     def create_material_library(self) -> str:
         """Create a standard library of PBR materials for Arcanum buildings."""
         try:
@@ -1197,7 +1269,7 @@ class ArcanumTexturingAgent:
             logger.error(f"Error creating material library: {str(e)}")
             return f"Failed to create material library: {str(e)}"
 
-    @tool
+    @class_tool
     def transform_street_view_images(self, street_view_dir: str) -> str:
         """Transform all street view images in a directory to Arcanum style."""
         try:
@@ -1232,7 +1304,7 @@ class ArcanumTexturingAgent:
             logger.error(f"Error transforming street view images: {str(e)}")
             return f"Failed to transform street view images: {str(e)}"
 
-    @tool
+    @class_tool
     def transform_satellite_images(self, satellite_dir: str) -> str:
         """Transform satellite imagery to match Arcanum style."""
         try:
@@ -1277,7 +1349,7 @@ class UnityIntegrationAgent:
         self.input_dir = os.path.join(config["output_directory"], "3d_models")
         self.output_dir = os.path.join(config["output_directory"], "unity_assets")
         
-    @tool
+    @class_tool
     def prepare_unity_terrain_data(self) -> str:
         """Prepare terrain data for Unity import."""
         try:
@@ -1303,7 +1375,7 @@ class UnityIntegrationAgent:
             logger.error(f"Error preparing Unity terrain data: {str(e)}")
             return f"Failed to prepare Unity terrain data: {str(e)}"
     
-    @tool
+    @class_tool
     def create_streaming_setup(self) -> str:
         """Create Unity addressable asset setup for streaming."""
         try:
@@ -1366,6 +1438,11 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         base_dir = setup_directory_structure()
         logger.info(f"Project initialized at {base_dir}")
 
+        # Create direct function calls to bypass the tool validation
+        # This dictionary will store direct function references to the actual implementation
+        # of each tool method, for instances where tools might fail due to validation
+        direct_functions = {}
+
         # Initialize agents
         data_agent = DataCollectionAgent(config)
         terrain_agent = TerrainGenerationAgent(config)
@@ -1373,18 +1450,57 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         arcanum_texturing_agent = ArcanumTexturingAgent(config)
         unity_agent = UnityIntegrationAgent(config)
 
+        # Store direct function references to data agent methods
+        direct_functions['download_osm_data'] = data_agent.download_osm_data
+        direct_functions['download_lidar_data'] = data_agent.download_lidar_data
+        direct_functions['fetch_google_satellite_imagery'] = data_agent.fetch_google_satellite_imagery
+        direct_functions['download_street_view_imagery'] = data_agent.download_street_view_imagery
+
+        # Store direct function references to terrain agent methods
+        direct_functions['process_lidar_to_dtm'] = terrain_agent.process_lidar_to_dtm
+        direct_functions['export_terrain_for_unity'] = terrain_agent.export_terrain_for_unity
+
+        # Store direct function references to building agent methods
+        direct_functions['generate_building_from_footprint'] = building_agent.generate_building_from_footprint
+        direct_functions['process_buildings_batch'] = building_agent.process_buildings_batch
+
+        # Store direct function references to texturing agent methods
+        direct_functions['generate_arcanum_style_image'] = arcanum_texturing_agent.generate_arcanum_style_image
+        direct_functions['generate_facade_texture'] = arcanum_texturing_agent.generate_facade_texture
+        direct_functions['create_material_library'] = arcanum_texturing_agent.create_material_library
+        direct_functions['transform_street_view_images'] = arcanum_texturing_agent.transform_street_view_images
+        direct_functions['transform_satellite_images'] = arcanum_texturing_agent.transform_satellite_images
+
+        # Store direct function references to Unity agent methods
+        direct_functions['prepare_unity_terrain_data'] = unity_agent.prepare_unity_terrain_data
+        direct_functions['create_streaming_setup'] = unity_agent.create_streaming_setup
+
+        # Create a direct function call wrapper that bypasses LangChain tools entirely
+        def direct_call(func_name, **kwargs):
+            """Call the function directly, bypassing tool validation"""
+            try:
+                if func_name in direct_functions:
+                    logger.info(f"Directly calling {func_name}")
+                    return direct_functions[func_name](**kwargs)
+                else:
+                    logger.error(f"No direct function found for {func_name}")
+                    return f"Function {func_name} not found in direct functions"
+            except Exception as e:
+                logger.error(f"Error directly calling {func_name}: {str(e)}")
+                return f"Error calling {func_name}: {str(e)}"
+
         # Step 1: Data Collection
         logger.info("Step 1: Data Collection")
         try:
-            # Using our safe_tool_call helper function
-            result = safe_tool_call(data_agent.download_osm_data, bounds=config["bounds"])
+            # Using direct function call instead of tool
+            result = direct_call('download_osm_data', bounds=config["bounds"])
             logger.info(result)
         except Exception as e:
             logger.warning(f"OSM data download failed: {str(e)}. Continuing with workflow...")
 
         try:
-            # Using our safe_tool_call helper function
-            result = safe_tool_call(data_agent.download_lidar_data, region="Arcanum")
+            # Using direct function call instead of tool
+            result = direct_call('download_lidar_data', region="Arcanum")
             logger.info(result)
         except Exception as e:
             logger.warning(f"LiDAR data download failed: {str(e)}. Continuing with workflow...")
@@ -1393,8 +1509,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         if not config.get("skip_cloud", False) and CLOUD_IMPORTS_AVAILABLE:
             logger.info("Downloading satellite imagery...")
             try:
-                # Using our safe_tool_call helper function
-                satellite_result = safe_tool_call(data_agent.fetch_google_satellite_imagery, bounds=config["bounds"])
+                # Using direct function call
+                satellite_result = direct_call('fetch_google_satellite_imagery', bounds=config["bounds"])
                 logger.info(satellite_result)
             except Exception as e:
                 logger.warning(f"Satellite imagery download failed: {str(e)}. Continuing with workflow...")
@@ -1406,8 +1522,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         if os.path.exists(satellite_dir) and len(os.listdir(satellite_dir)) > 0:
             logger.info("Transforming satellite imagery to Arcanum style...")
             try:
-                # Using our safe_tool_call helper function
-                arcanum_satellite_result = safe_tool_call(arcanum_texturing_agent.transform_satellite_images, satellite_dir=satellite_dir)
+                # Using direct function call
+                arcanum_satellite_result = direct_call('transform_satellite_images', satellite_dir=satellite_dir)
                 logger.info(arcanum_satellite_result)
             except Exception as e:
                 logger.warning(f"Satellite imagery transformation failed: {str(e)}. Continuing with workflow...")
@@ -1429,8 +1545,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
             ]
             for loc, heading in sample_locations:
                 try:
-                    # Using our safe_tool_call helper function
-                    result = safe_tool_call(data_agent.download_street_view_imagery, location=loc, heading=heading)
+                    # Using direct function call
+                    result = direct_call('download_street_view_imagery', location=loc, heading=heading)
                     logger.info(result)
                 except Exception as e:
                     logger.warning(f"Street view download failed: {str(e)}. Continuing with workflow...")
@@ -1452,8 +1568,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         if os.path.exists(street_view_dir):
             logger.info("Transforming street view imagery to Arcanum style...")
             try:
-                # Using our safe_tool_call helper function
-                arcanum_street_view_result = safe_tool_call(arcanum_texturing_agent.transform_street_view_images, street_view_dir=street_view_dir)
+                # Using direct function call
+                arcanum_street_view_result = direct_call('transform_street_view_images', street_view_dir=street_view_dir)
                 logger.info(arcanum_street_view_result)
             except Exception as e:
                 logger.warning(f"Street view transformation failed: {str(e)}. Continuing with workflow...")
@@ -1462,12 +1578,12 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         logger.info("Step 2: Terrain Generation")
         try:
             lidar_file = os.path.join(base_dir, "raw_data/lidar/arcanum_lidar.laz")
-            # Using our safe_tool_call helper function
-            result1 = safe_tool_call(terrain_agent.process_lidar_to_dtm, lidar_file=lidar_file)
+            # Using direct function call
+            result1 = direct_call('process_lidar_to_dtm', lidar_file=lidar_file)
             logger.info(result1)
 
             dtm_file = os.path.join(base_dir, "processed_data/terrain/arcanum_dtm.tif")
-            result2 = safe_tool_call(terrain_agent.export_terrain_for_unity, dtm_file=dtm_file)
+            result2 = direct_call('export_terrain_for_unity', dtm_file=dtm_file)
             logger.info(result2)
         except Exception as e:
             logger.warning(f"Terrain generation failed: {str(e)}. Continuing with workflow...")
@@ -1478,8 +1594,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
             districts = ["Westminster", "City_of_London", "Southwark"]
             for district in districts:
                 try:
-                    # Using our safe_tool_call helper function
-                    result = safe_tool_call(building_agent.process_buildings_batch, district=district)
+                    # Using direct function call
+                    result = direct_call('process_buildings_batch', district=district)
                     logger.info(result)
                 except Exception as district_error:
                     logger.warning(f"Building generation for district {district} failed: {str(district_error)}. Continuing with next district...")
@@ -1496,8 +1612,8 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
             ]
             for landmark_id, height in landmarks:
                 try:
-                    # Using our safe_tool_call helper function
-                    result = safe_tool_call(building_agent.generate_building_from_footprint, building_id=landmark_id, height=height)
+                    # Using direct function call
+                    result = direct_call('generate_building_from_footprint', building_id=landmark_id, height=height)
                     logger.info(result)
                 except Exception as landmark_error:
                     logger.warning(f"Landmark building generation for {landmark_id} failed: {str(landmark_error)}. Continuing with next landmark...")
@@ -1549,24 +1665,24 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
                         reference_path = reference_images.get(building_type, {}).get(era, None)
                         if reference_path and os.path.exists(reference_path):
                             logger.info(f"Generating facade texture for {building_type} ({era}) using reference image")
-                            # Using our safe_tool_call helper function
-                            result = safe_tool_call(arcanum_texturing_agent.generate_facade_texture,
-                                                   building_type=building_type,
-                                                   era=era,
-                                                   reference_image_path=reference_path)
+                            # Using direct function call
+                            result = direct_call('generate_facade_texture',
+                                                building_type=building_type,
+                                                era=era,
+                                                reference_image_path=reference_path)
                         else:
                             logger.info(f"Generating facade texture for {building_type} ({era}) without reference image")
-                            result = safe_tool_call(arcanum_texturing_agent.generate_facade_texture,
-                                                  building_type=building_type,
-                                                  era=era)
+                            result = direct_call('generate_facade_texture',
+                                               building_type=building_type,
+                                               era=era)
                         logger.info(result)
                     except Exception as texture_error:
                         logger.warning(f"Facade texture generation for {building_type} ({era}) failed: {str(texture_error)}. Continuing with next texture...")
 
             # Create Arcanum-styled material library
             try:
-                # Using our safe_tool_call helper function
-                result = safe_tool_call(arcanum_texturing_agent.create_material_library)
+                # Using direct function call
+                result = direct_call('create_material_library')
                 logger.info(result)
             except Exception as material_error:
                 logger.warning(f"Material library creation failed: {str(material_error)}. Continuing with workflow...")
@@ -1576,11 +1692,11 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         # Step 5: Unity Integration
         logger.info("Step 5: Unity Integration")
         try:
-            # Using our safe_tool_call helper function
-            result1 = safe_tool_call(unity_agent.prepare_unity_terrain_data)
+            # Using direct function call
+            result1 = direct_call('prepare_unity_terrain_data')
             logger.info(result1)
 
-            result2 = safe_tool_call(unity_agent.create_streaming_setup)
+            result2 = direct_call('create_streaming_setup')
             logger.info(result2)
         except Exception as e:
             logger.warning(f"Unity integration failed: {str(e)}. Continuing with workflow...")
@@ -1621,6 +1737,15 @@ def main():
     config = PROJECT_CONFIG.copy()
     config["output_directory"] = args.output
     config["skip_cloud"] = args.skip_cloud
+
+    # Store ComfyUI path in config
+    if args.comfyui_path:
+        config["comfyui_path"] = args.comfyui_path
+    else:
+        # Try to get from environment variable
+        config["comfyui_path"] = os.environ.get("COMFYUI_PATH", "./ComfyUI")
+
+    logger.info(f"Using ComfyUI at: {config['comfyui_path']}")
 
     # Parse bounds if provided
     if args.bounds:

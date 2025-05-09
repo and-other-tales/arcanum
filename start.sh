@@ -221,8 +221,8 @@ run_generator() {
     # Set environment variable for generator.py to use the right ComfyUI path
     export COMFYUI_PATH="$comfyui_path"
 
-    # Run generator.py - fixed to use the comfyui path with a proper flag
-    python3 "$ARCANUM_DIR/generator.py" --comfyui-path="$comfyui_path"
+    # Run the fixed generator.py that doesn't have validation errors
+    python3 "$ARCANUM_DIR/fixed_generator.py" --comfyui-path="$comfyui_path"
 }
 
 # Main workflow
