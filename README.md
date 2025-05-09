@@ -1,4 +1,5 @@
 # Arcanum Facade and 3D Model Generation
+Copyright (C) 2025 Adventures of the Persistently Impaired (...and Other Tales) Limited. Some components of the source code are licensed under MIT.
 
 Arcanum City Generator: A Facade and Scenery Generation Workflow for Stylized 3D Urban
   Modeling in Unity
