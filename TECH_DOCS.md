@@ -1,4 +1,4 @@
-Arcanum City Generator: A Research-Grade Workflow for Stylized 3D Urban
+Arcanum City Generator: A Facade and Scenery Generation Workflow for Stylized 3D Urban
   Modeling in Unity
 
   Abstract
