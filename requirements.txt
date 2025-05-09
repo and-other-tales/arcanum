@@ -19,3 +19,9 @@ opencv-python>=4.8.0.76
 # git+https://github.com/comfyanonymous/ComfyUI.git
 # ComfyUI installed separately to avoid build errors
 accelerate==1.6.0
+google-cloud-storage==2.15.0
+google-cloud-vision==3.8.0
+earthengine-api==0.1.389
+google-auth==2.40.1
+gdal>=3.6.2
+requests>=2.31.0
