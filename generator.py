@@ -3,7 +3,7 @@
 Arcanum City Gen for Unity
 ------------------------
 This script orchestrates the generation of a non-photorealistic, stylized 1:1 scale model of Arcanum
-for exploration in Unity3D, utilizing LangChain for workflow orchestration,
+for exploration in Unity3D, utilizing function-based workflow orchestration,
 HuggingFace's diffusers for stylization, and various open-source tools and Google Cloud APIs for data processing.
 """
 
@@ -18,28 +18,27 @@ import io
 import functools
 import warnings
 
-# LangChain & LangGraph imports
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.output_parsers import StrOutputParser
-from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain.tools import tool
+# Comment out LangChain imports since we're bypassing the LangChain tool validation
+# from langchain_core.messages import AIMessage, HumanMessage
+# from langchain_core.output_parsers import StrOutputParser
+# from langchain.agents import AgentExecutor, create_openai_tools_agent
+# from langchain.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.tools import BaseTool
+# from langchain.prompts import ChatPromptTemplate
+# from langchain.tools import BaseTool
 from functools import wraps
 
-# Create a custom tool decorator that properly handles self parameter for class methods
+# Simple decorator to maintain function metadata
 def class_tool(func):
     """Decorator for class methods that should be exposed as tools.
-    This wrapper ensures that 'self' parameter is properly handled.
+    This is now just a simple passthrough since we're not using LangChain tools.
     """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        # Call the original function with self and all arguments
+        # Just call the original function with self and all arguments
         return func(self, *args, **kwargs)
 
-    # Apply the standard tool decorator
-    return tool(wrapper)
+    return wrapper
 
 # Suppress LangChainDeprecationWarning for BaseTool.__call__
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="langchain")
@@ -59,40 +58,14 @@ def safe_tool_call(tool_obj, **kwargs):
     Returns:
         The result from the tool invocation or error message
     """
-    # Special case handling for known tool calls that need to be populated with defaults
     # Get the tool name for specific handling
     tool_name = getattr(tool_obj, "__name__", "") or str(tool_obj).split(" ")[0]
 
-    # Add any necessary default parameters based on tool name
-    if tool_name == "download_osm_data" and "self" not in kwargs:
-        # Default the 'self' parameter which seems to be required by the validation
-        kwargs["self"] = {}
-    elif tool_name == "download_lidar_data" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "fetch_google_satellite_imagery" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "transform_satellite_images" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "download_street_view_imagery" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "transform_street_view_images" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "process_lidar_to_dtm" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "export_terrain_for_unity" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "process_buildings_batch" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "generate_building_from_footprint" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "generate_facade_texture" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "create_material_library" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "prepare_unity_terrain_data" and "self" not in kwargs:
-        kwargs["self"] = {}
-    elif tool_name == "create_streaming_setup" and "self" not in kwargs:
-        kwargs["self"] = {}
+    # For direct function calls, we need to create a proper input structure
+    # that satisfies pydantic validation requirements for LangChain tools
+
+    # Create a wrapped input with all the kwargs inside a tool_input dict
+    wrapped_input = {"tool_input": kwargs}
 
     # Now attempt to call the tool with the enhanced parameters
     try:
@@ -103,19 +76,28 @@ def safe_tool_call(tool_obj, **kwargs):
     except TypeError as e:
         logger.debug(f"Direct call failed for {tool_name}: {str(e)}")
         try:
-            # Next try .invoke() without input wrapper (newer style)
-            return tool_obj.invoke(**kwargs)
-        except TypeError as e:
-            logger.debug(f"Invoke call failed for {tool_name}: {str(e)}")
+            # Try using invoke with the wrapped input containing all parameters
+            return tool_obj.invoke(wrapped_input)
+        except Exception as wrapped_error:
+            logger.debug(f"Wrapped invoke call failed for {tool_name}: {str(wrapped_error)}")
             try:
-                # Finally try .invoke() with input wrapper (pydantic style)
-                return tool_obj.invoke(input=kwargs)
-            except Exception as e:
-                # Log detailed error information for debugging
-                logger.error(f"Tool invocation failed for {tool_name}: {str(e)}")
-                logger.error(f"Arguments provided: {kwargs}")
-                # Provide a meaningful error message
-                return f"Tool invocation failed: {str(e)}"
+                # Try invoke with just the parameters directly
+                return tool_obj.invoke(kwargs)
+            except Exception as direct_error:
+                logger.debug(f"Direct invoke call failed for {tool_name}: {str(direct_error)}")
+                try:
+                    # As a last resort, try with an empty input dictionary
+                    if not kwargs:
+                        return tool_obj.invoke({})
+                    else:
+                        # Create a proper input structure expected by the tool
+                        return tool_obj.invoke({"input": kwargs})
+                except Exception as e:
+                    # Log detailed error information for debugging
+                    logger.error(f"All tool invocation methods failed for {tool_name}: {str(e)}")
+                    logger.error(f"Arguments provided: {kwargs}")
+                    # Provide a meaningful error message
+                    return f"Tool invocation failed: {str(e)}"
 
 # Geographic data processing
 import geopandas as gpd
@@ -1231,7 +1213,7 @@ class ArcanumTexturingAgent:
             return f"Failed to generate facade texture: {str(e)}"
 
     @class_tool
-    def create_material_library(self) -> str:
+    def create_material_library(self, tool_input: Dict = None) -> str:
         """Create a standard library of PBR materials for Arcanum buildings."""
         try:
             # Create materials directory
@@ -1350,7 +1332,7 @@ class UnityIntegrationAgent:
         self.output_dir = os.path.join(config["output_directory"], "unity_assets")
         
     @class_tool
-    def prepare_unity_terrain_data(self) -> str:
+    def prepare_unity_terrain_data(self, tool_input: Dict = None) -> str:
         """Prepare terrain data for Unity import."""
         try:
             # Placeholder for Unity terrain preparation
@@ -1376,7 +1358,7 @@ class UnityIntegrationAgent:
             return f"Failed to prepare Unity terrain data: {str(e)}"
     
     @class_tool
-    def create_streaming_setup(self) -> str:
+    def create_streaming_setup(self, tool_input: Dict = None) -> str:
         """Create Unity addressable asset setup for streaming."""
         try:
             # Placeholder for streaming setup
@@ -1475,13 +1457,13 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         direct_functions['prepare_unity_terrain_data'] = unity_agent.prepare_unity_terrain_data
         direct_functions['create_streaming_setup'] = unity_agent.create_streaming_setup
 
-        # Create a direct function call wrapper that bypasses LangChain tools entirely
+        # Create a direct function call wrapper that uses safe_tool_call to handle LangChain compatibility
         def direct_call(func_name, **kwargs):
-            """Call the function directly, bypassing tool validation"""
+            """Call the function using safe_tool_call to handle LangChain compatibility"""
             try:
                 if func_name in direct_functions:
                     logger.info(f"Directly calling {func_name}")
-                    return direct_functions[func_name](**kwargs)
+                    return safe_tool_call(direct_functions[func_name], **kwargs)
                 else:
                     logger.error(f"No direct function found for {func_name}")
                     return f"Function {func_name} not found in direct functions"
@@ -1682,7 +1664,7 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
             # Create Arcanum-styled material library
             try:
                 # Using direct function call
-                result = direct_call('create_material_library')
+                result = direct_call('create_material_library', tool_input={})
                 logger.info(result)
             except Exception as material_error:
                 logger.warning(f"Material library creation failed: {str(material_error)}. Continuing with workflow...")
@@ -1693,10 +1675,10 @@ def run_arcanum_generation_workflow(config: Dict[str, Any]):
         logger.info("Step 5: Unity Integration")
         try:
             # Using direct function call
-            result1 = direct_call('prepare_unity_terrain_data')
+            result1 = direct_call('prepare_unity_terrain_data', tool_input={})
             logger.info(result1)
 
-            result2 = direct_call('create_streaming_setup')
+            result2 = direct_call('create_streaming_setup', tool_input={})
             logger.info(result2)
         except Exception as e:
             logger.warning(f"Unity integration failed: {str(e)}. Continuing with workflow...")
