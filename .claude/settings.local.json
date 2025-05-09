@@ -10,7 +10,10 @@
       "Bash(pip install:*)",
       "Bash(cp:*)",
       "Bash(pip index versions:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(sudo apt-get:*)",
+      "Bash(sudo apt-get install:*)",
+      "Bash(apt-cache:*)"
     ],
     "deny": []
   }

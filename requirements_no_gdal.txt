@@ -9,7 +9,7 @@ osmnx==2.0.3
 # Relaxed protobuf constraint to resolve conflict with google-cloud-vision
 protobuf<6.0.0,>=3.20.2
 pyproj==3.7.1
-# rasterio==1.4.3  # Depends on GDAL
+# rasterio==1.4.3  # Commented out as it depends on GDAL
 Shapely==2.1.0
 diffusers==0.33.1
 transformers==4.51.3
@@ -25,6 +25,10 @@ google-cloud-vision==3.8.0
 earthengine-api==0.1.389
 google-auth==2.40.1
 # GDAL dependencies commented out due to installation issues
-# See README_GDAL.md for installation instructions
 # gdal>=3.6.2
 requests>=2.31.0
+
+# NOTE: To use GDAL functionality, you must install system GDAL libraries:
+# For Ubuntu/Debian: sudo apt-get install -y libgdal-dev gdal-bin
+# For CentOS/RHEL: sudo yum install gdal-devel
+# Then install the matching pygdal version: pip install pygdal==$(gdal-config --version).*
