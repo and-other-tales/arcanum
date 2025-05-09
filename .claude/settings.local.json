@@ -9,7 +9,8 @@
       "Bash(ls:*)",
       "Bash(pip install:*)",
       "Bash(cp:*)",
-      "Bash(pip index versions:*)"
+      "Bash(pip index versions:*)",
+      "Bash(python:*)"
     ],
     "deny": []
   }
