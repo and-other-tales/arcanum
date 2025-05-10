@@ -16,11 +16,15 @@ from .automation import (
 
 from .transformer import ArcanumStyleTransformer
 
+# Create alias for ComfyUIStyleTransformer for backward compatibility
+ComfyUIStyleTransformer = ArcanumStyleTransformer
+
 __all__ = [
     'setup_comfyui',
     'get_comfyui_status',
     'transform_image',
-    'batch_transform_images', 
+    'batch_transform_images',
     'download_flux_models',
-    'ArcanumStyleTransformer'
+    'ArcanumStyleTransformer',
+    'ComfyUIStyleTransformer'
 ]

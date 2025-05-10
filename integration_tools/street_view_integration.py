@@ -4,7 +4,18 @@ Google Street View Integration Module
 ------------------------------------
 This module provides integration with Google Maps Platform's Street View API,
 allowing for fetching and processing of Street View imagery within the Arcanum system.
+
+DEPRECATED: This module has been moved to modules/integration/street_view_integration.py
+Please update your imports to use the new module path.
 """
+
+import warnings
+warnings.warn(
+    "The integration_tools.street_view_integration module is deprecated. "
+    "Please use modules.integration.street_view_integration instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import os
 import sys
@@ -39,9 +50,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Add module level function for direct import
-def fetch_street_view(lat: float, lng: float, output_dir: str, api_key: str = None, 
-                     heading: Optional[int] = None, fov: int = 90, 
+# Add module level functions for direct import
+def fetch_street_view(lat: float, lng: float, output_dir: str, api_key: str = None,
+                     heading: Optional[int] = None, fov: int = 90,
                      pitch: int = 0, radius: int = 100, cache_dir: str = None) -> Dict:
     """Fetch Street View imagery for a given location and save to output directory.
 
@@ -73,6 +84,47 @@ def fetch_street_view(lat: float, lng: float, output_dir: str, api_key: str = No
 
     # Delegate to the class method
     return integration.fetch_street_view(lat, lng, output_dir, heading, fov, pitch, radius)
+
+def fetch_street_view_along_roads(
+    points: List[Tuple[float, float, int]],
+    output_dir: str,
+    api_key: str = None,
+    panorama: bool = True,
+    max_search_radius: int = 1000,
+    max_workers: int = 4,
+    cache_dir: str = None
+) -> Dict[str, Any]:
+    """Fetch Street View images along a road network at sampled points.
+
+    Args:
+        points: List of (lat, lng, index) tuples representing sample points
+        output_dir: Directory to save Street View imagery
+        api_key: Google Maps API key with Street View access (from env var if None)
+        panorama: Whether to fetch full panoramas instead of single images
+        max_search_radius: Maximum search radius in meters
+        max_workers: Maximum number of worker threads
+        cache_dir: Directory to cache downloaded images
+
+    Returns:
+        Dictionary with download results
+    """
+    # Create integration instance
+    integration = GoogleStreetViewIntegration(
+        api_key=api_key,
+        cache_dir=cache_dir
+    )
+
+    # Log the request
+    logger.info(f"Fetching Street View imagery along roads ({len(points)} points)")
+
+    # Delegate to the class method
+    return integration.fetch_street_view_along_road(
+        points=points,
+        output_dir=output_dir,
+        panorama=panorama,
+        max_search_radius=max_search_radius,
+        max_workers=max_workers
+    )
 
 class GoogleStreetViewIntegration:
     """Class that provides integration with Google Maps Platform's Street View API."""
@@ -594,50 +646,302 @@ class GoogleStreetViewIntegration:
                 "location": (lat, lng)
             }
 
+    def process_point(self, lat: float, lng: float, point_index: int, output_dir: str,
+                    panorama: bool = True, max_search_radius: int = 1000) -> Dict[str, Any]:
+        """Process a single point by fetching Street View imagery.
+
+        Args:
+            lat: Latitude of the point
+            lng: Longitude of the point
+            point_index: Index of the point for directory naming
+            output_dir: Base output directory
+            panorama: Whether to fetch full panorama
+            max_search_radius: Maximum radius to search for nearby imagery
+
+        Returns:
+            Dictionary with results for this point
+        """
+        try:
+            # Create output directory for this point
+            point_dir = os.path.join(output_dir, f"point_{point_index:06d}")
+            os.makedirs(point_dir, exist_ok=True)
+
+            # Save point location
+            with open(os.path.join(point_dir, "location.json"), "w") as f:
+                json.dump({
+                    "original": {"lat": lat, "lng": lng},
+                    "index": point_index
+                }, f, indent=2)
+
+            # Fetch Street View imagery
+            if panorama:
+                logger.info(f"Fetching panorama for point {point_index} at ({lat}, {lng})")
+                result = self.fetch_panorama(
+                    lat, lng, point_dir,
+                    max_search_radius=max_search_radius,
+                    find_nearest=True
+                )
+            else:
+                logger.info(f"Fetching Street View for point {point_index} at ({lat}, {lng})")
+                result = self.fetch_street_view(
+                    lat, lng, point_dir,
+                    max_search_radius=max_search_radius,
+                    find_nearest=True
+                )
+
+            # Add point index to result
+            result["point_index"] = point_index
+
+            # Save result summary
+            with open(os.path.join(point_dir, "result.json"), "w") as f:
+                # Create a serializable result by removing non-serializable items
+                serializable_result = {k: v for k, v in result.items()
+                                     if k not in ["paths"]}
+                json.dump(serializable_result, f, indent=2)
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error processing point {point_index} at ({lat}, {lng}): {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "point_index": point_index,
+                "location": (lat, lng)
+            }
+
+    def fetch_street_view_along_road(self, points: List[Tuple[float, float, int]],
+                                   output_dir: str,
+                                   panorama: bool = True,
+                                   max_search_radius: int = 1000,
+                                   max_workers: int = 4) -> Dict[str, Any]:
+        """Fetch Street View images along a road at specified sampling points.
+
+        Args:
+            points: List of (lat, lng, index) tuples representing sampling points
+            output_dir: Base directory to save imagery
+            panorama: Whether to fetch full panorama or regular images
+            max_search_radius: Maximum radius to search for nearby imagery
+            max_workers: Maximum number of worker threads
+
+        Returns:
+            Dictionary with results
+        """
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Process points in parallel
+        logger.info(f"Processing {len(points)} points with {max_workers} workers")
+
+        results = {
+            "success_count": 0,
+            "failed_count": 0,
+            "no_imagery_count": 0,
+            "total_images": 0,
+            "points_with_imagery": []
+        }
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_point = {}
+
+            for lat, lng, idx in points:
+                # Submit task
+                future = executor.submit(
+                    self.process_point,
+                    lat, lng, idx, output_dir,
+                    panorama, max_search_radius
+                )
+
+                future_to_point[future] = (lat, lng, idx)
+
+            # Process results as they complete
+            start_time = time.time()
+            for i, future in enumerate(as_completed(future_to_point), 1):
+                point = future_to_point[future]
+                lat, lng, idx = point
+
+                try:
+                    result = future.result()
+
+                    if result.get("success", False):
+                        results["success_count"] += 1
+                        results["total_images"] += result.get("downloaded_images", 0)
+                        results["points_with_imagery"].append({
+                            "point_index": idx,
+                            "location": result.get("location"),
+                            "original_location": (lat, lng),
+                            "image_count": result.get("downloaded_images", 0),
+                            "search_distance": result.get("search_distance", 0)
+                        })
+                    else:
+                        if "No Street View imagery" in result.get("error", ""):
+                            results["no_imagery_count"] += 1
+                        else:
+                            results["failed_count"] += 1
+
+                    # Log progress periodically
+                    if i % 10 == 0 or i == len(points):
+                        elapsed = time.time() - start_time
+                        logger.info(f"Processed {i}/{len(points)} points ({i/len(points)*100:.1f}%) in {elapsed:.1f}s")
+                        logger.info(f"Success: {results['success_count']}, No imagery: {results['no_imagery_count']}, Failed: {results['failed_count']}")
+
+                except Exception as e:
+                    logger.error(f"Error processing point {point}: {str(e)}")
+                    results["failed_count"] += 1
+
+        # Calculate elapsed time
+        elapsed = time.time() - start_time
+
+        # Add summary information
+        results["total_points"] = len(points)
+        results["elapsed_seconds"] = elapsed
+        results["points_per_second"] = len(points) / elapsed if elapsed > 0 else 0
+
+        # Save summary
+        summary_path = os.path.join(output_dir, "street_view_summary.json")
+        with open(summary_path, "w") as f:
+            json.dump(results, f, indent=2)
+
+        logger.info(f"Completed processing {len(points)} points in {elapsed:.1f}s")
+        logger.info(f"Success: {results['success_count']}, No imagery: {results['no_imagery_count']}, Failed: {results['failed_count']}")
+        logger.info(f"Downloaded {results['total_images']} Street View images")
+
+        return {
+            "success": results["success_count"] > 0,
+            "points_processed": len(points),
+            "points_with_imagery": results["success_count"],
+            "images_downloaded": results["total_images"],
+            "summary_path": summary_path,
+            "output_dir": output_dir
+        }
+
 def main():
     """Main function for testing the module."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Google Street View Integration")
     parser.add_argument("--api-key", help="Google Maps API key (or set GOOGLE_MAPS_API_KEY env var)")
-    parser.add_argument("--lat", type=float, required=True, help="Latitude")
-    parser.add_argument("--lng", type=float, required=True, help="Longitude")
     parser.add_argument("--output", default="./street_view_output", help="Output directory")
-    parser.add_argument("--heading", type=int, help="Specific heading (0-360)")
-    parser.add_argument("--fov", type=int, default=90, help="Field of view (20-120)")
-    parser.add_argument("--pitch", type=int, default=0, help="Camera pitch (-90 to 90)")
-    parser.add_argument("--radius", type=int, default=100, help="Search radius in meters")
-    parser.add_argument("--panorama", action="store_true", help="Capture full panorama")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+    # Create subparsers for different modes
+    subparsers = parser.add_subparsers(dest="mode", help="Operation mode")
+
+    # Single point mode
+    point_parser = subparsers.add_parser("point", help="Fetch Street View for a single point")
+    point_parser.add_argument("--lat", type=float, required=True, help="Latitude")
+    point_parser.add_argument("--lng", type=float, required=True, help="Longitude")
+    point_parser.add_argument("--heading", type=int, help="Specific heading (0-360)")
+    point_parser.add_argument("--fov", type=int, default=90, help="Field of view (20-120)")
+    point_parser.add_argument("--pitch", type=int, default=0, help="Camera pitch (-90 to 90)")
+    point_parser.add_argument("--radius", type=int, default=100, help="Search radius in meters")
+    point_parser.add_argument("--panorama", action="store_true", help="Capture full panorama")
+
+    # Road network mode
+    road_parser = subparsers.add_parser("road", help="Fetch Street View along a road network")
+    road_parser.add_argument("--points-file", required=True, help="Path to JSON file with sampling points")
+    road_parser.add_argument("--panorama", action="store_true", help="Capture full panoramas")
+    road_parser.add_argument("--max-radius", type=int, default=1000, help="Maximum search radius in meters")
+    road_parser.add_argument("--workers", type=int, default=4, help="Number of worker threads")
+
     args = parser.parse_args()
-    
+
     # Set log level
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    
+
     # Initialize integration
     street_view = GoogleStreetViewIntegration(api_key=args.api_key)
-    
-    if args.panorama:
-        logger.info(f"Fetching Street View panorama for location ({args.lat}, {args.lng})")
-        result = street_view.fetch_panorama(
-            args.lat, args.lng, args.output,
-            radius=args.radius
-        )
+
+    # If no mode specified, default to 'point' if lat/lng provided
+    if not args.mode:
+        if hasattr(args, 'lat') and hasattr(args, 'lng'):
+            args.mode = 'point'
+        else:
+            parser.print_help()
+            return 1
+
+    # Process based on mode
+    if args.mode == "point":
+        if args.panorama:
+            logger.info(f"Fetching Street View panorama for location ({args.lat}, {args.lng})")
+            result = street_view.fetch_panorama(
+                args.lat, args.lng, args.output,
+                radius=args.radius
+            )
+        else:
+            logger.info(f"Fetching Street View imagery for location ({args.lat}, {args.lng})")
+            result = street_view.fetch_street_view(
+                args.lat, args.lng, args.output,
+                heading=args.heading, fov=args.fov, pitch=args.pitch, radius=args.radius
+            )
+
+        if result.get("success", False):
+            print(f"Successfully downloaded {result['downloaded_images']} Street View images")
+            print(f"Images saved to {args.output}")
+        else:
+            print(f"Failed to download Street View imagery: {result.get('error', 'Unknown error')}")
+            return 1
+
+    elif args.mode == "road":
+        # Load the points file
+        try:
+            with open(args.points_file, 'r') as f:
+                points_data = json.load(f)
+
+            # Extract points from GeoJSON
+            sample_points = []
+            if "features" in points_data:
+                # GeoJSON format
+                for feature in points_data["features"]:
+                    coords = feature["geometry"]["coordinates"]
+                    index = feature["properties"]["index"]
+                    # Convert from [lon, lat] to (lat, lon, index)
+                    sample_points.append((coords[1], coords[0], index))
+            elif "points" in points_data:
+                # Custom format
+                for i, point in enumerate(points_data["points"]):
+                    if isinstance(point, list):
+                        # [lat, lng] format
+                        sample_points.append((point[0], point[1], i))
+                    elif isinstance(point, dict):
+                        # {"lat": lat, "lng": lng} format
+                        sample_points.append((point["lat"], point["lng"], i))
+
+            if not sample_points:
+                print(f"No valid points found in {args.points_file}")
+                return 1
+
+            print(f"Processing {len(sample_points)} points from {args.points_file}")
+
+            result = street_view.fetch_street_view_along_road(
+                sample_points,
+                args.output,
+                panorama=args.panorama,
+                max_search_radius=args.max_radius,
+                max_workers=args.workers
+            )
+
+            if result.get("success", False):
+                print(f"Successfully processed {result['points_processed']} points")
+                print(f"Found imagery at {result['points_with_imagery']} locations")
+                print(f"Downloaded {result['images_downloaded']} Street View images")
+                print(f"Results saved to {result['summary_path']}")
+            else:
+                print(f"Failed to process points: {result.get('error', 'Unknown error')}")
+                return 1
+
+        except Exception as e:
+            print(f"Error processing points file: {str(e)}")
+            return 1
+
     else:
-        logger.info(f"Fetching Street View imagery for location ({args.lat}, {args.lng})")
-        result = street_view.fetch_street_view(
-            args.lat, args.lng, args.output,
-            heading=args.heading, fov=args.fov, pitch=args.pitch, radius=args.radius
-        )
-    
-    if result.get("success", False):
-        print(f"Successfully downloaded {result['downloaded_images']} Street View images")
-        print(f"Images saved to {args.output}")
-    else:
-        print(f"Failed to download Street View imagery: {result.get('error', 'Unknown error')}")
+        parser.print_help()
         return 1
-    
+
     return 0
 
 if __name__ == "__main__":

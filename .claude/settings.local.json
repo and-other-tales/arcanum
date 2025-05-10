@@ -37,7 +37,8 @@
       "WebFetch(domain:download.geofabrik.de)",
       "WebFetch(domain:developers.google.com)",
       "Bash(osmium:*)",
-      "Bash(ogrinfo:*)"
+      "Bash(ogrinfo:*)",
+      "WebFetch(domain:developers.google.com)"
     ],
     "deny": []
   }

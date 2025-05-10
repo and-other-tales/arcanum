@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arcanum City Generator</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Leaflet for map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-city me-2"></i>Arcanum City Generator
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#" data-bs-target="#createJobTab">Create Job</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-target="#jobsTab">Jobs</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-target="#textureManagerTab">Texture Manager</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-target="#styleEditorTab">Style Editor</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-target="#settingsTab">Settings</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    
+    <div class="container-fluid mt-4">
+        <!-- Main content area with tabs -->
+        <div class="tab-content">
+
+            <!-- Texture Manager Tab -->
+            <div class="tab-pane fade" id="textureManagerTab">
+                <div class="row">
+                    <div class="col-12">
+                        <h2>Texture Manager</h2>
+                        <p class="text-muted">Manage textures and building texture mappings</p>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <!-- Left column: Buildings list -->
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Buildings</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="input-group mb-3">
+                                    <input type="text" class="form-control" id="buildingSearch" placeholder="Search buildings...">
+                                    <button class="btn btn-outline-secondary" type="button">
+                                        <i class="fas fa-search"></i>
+                                    </button>
+                                </div>
+
+                                <div id="buildingsList" class="list-group">
+                                    <!-- Buildings will be loaded here -->
+                                    <div class="text-center py-5 text-muted">
+                                        <i class="fas fa-building fa-2x mb-3"></i>
+                                        <p>No buildings found</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Middle column: Selected building and texture assignment -->
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Building Details</h5>
+                            </div>
+                            <div class="card-body" id="buildingDetailContainer">
+                                <!-- Building detail content will be loaded here -->
+                                <div class="text-center py-5 text-muted">
+                                    <i class="fas fa-info-circle fa-2x mb-3"></i>
+                                    <p>Select a building to view details</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5>Texture Assignment</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="currentTextureContainer" class="mb-3">
+                                    <h6>Current Texture</h6>
+                                    <div class="text-center py-3 bg-light rounded">
+                                        <i class="fas fa-image fa-2x text-muted"></i>
+                                        <p class="text-muted mt-2">No texture assigned</p>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="textureSelect" class="form-label">Assign Texture</label>
+                                    <select class="form-select" id="textureSelect" disabled>
+                                        <option value="">Select a texture...</option>
+                                    </select>
+                                </div>
+
+                                <button id="assignTextureBtn" class="btn btn-primary" disabled>
+                                    <i class="fas fa-link me-2"></i>Assign Texture
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right column: Atlas visualization -->
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Texture Atlas</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label for="atlasSelect" class="form-label">Select Atlas</label>
+                                    <select class="form-select" id="atlasSelect">
+                                        <option value="">No atlas available</option>
+                                    </select>
+                                </div>
+
+                                <div id="atlasPreviewContainer" class="atlas-container">
+                                    <!-- Atlas preview will be loaded here -->
+                                    <div class="text-center py-5 text-muted">
+                                        <i class="fas fa-th fa-2x mb-3"></i>
+                                        <p>Select an atlas to view preview</p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-3 d-flex justify-content-between">
+                                    <button id="regenerateAtlasBtn" class="btn btn-outline-primary" disabled>
+                                        <i class="fas fa-sync-alt me-2"></i>Regenerate Atlas
+                                    </button>
+                                    <button id="downloadAtlasBtn" class="btn btn-outline-secondary" disabled>
+                                        <i class="fas fa-download me-2"></i>Download Atlas
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Building Visualization -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Building Visualization</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6" id="buildingPreviewContainer">
+                                        <!-- Building preview will be loaded here -->
+                                        <div class="text-center py-5 text-muted">
+                                            <i class="fas fa-cube fa-2x mb-3"></i>
+                                            <p>Select a building to view 3D preview</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6" id="textureMapPreviewContainer">
+                                        <!-- Texture mapping preview will be loaded here -->
+                                        <div class="text-center py-5 text-muted">
+                                            <i class="fas fa-map fa-2x mb-3"></i>
+                                            <p>Texture mapping will appear here</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Create Job Tab -->
+            <div class="tab-pane fade show active" id="createJobTab">
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="card-title">Area Selection</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="mapContainer" style="height: 400px;"></div>
+                                <div class="mt-3">
+                                    <div class="input-group mb-3">
+                                        <span class="input-group-text">Search Location</span>
+                                        <input type="text" class="form-control" id="locationSearch" placeholder="Enter a location...">
+                                        <button class="btn btn-primary" id="searchBtn">
+                                            <i class="fas fa-search"></i>
+                                        </button>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label">North</label>
+                                            <input type="text" class="form-control" id="boundNorth" readonly>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">South</label>
+                                            <input type="text" class="form-control" id="boundSouth" readonly>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">East</label>
+                                            <input type="text" class="form-control" id="boundEast" readonly>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">West</label>
+                                            <input type="text" class="form-control" id="boundWest" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-6">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="card-title">Style Selection</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    {% for style in styles %}
+                                    <div class="col-md-4 mb-3">
+                                        <div class="card style-card" data-style-id="{{ style.id }}">
+                                            <img src="{{ style.thumbnail }}" class="card-img-top style-thumbnail" alt="{{ style.name }}">
+                                            <div class="card-body">
+                                                <h6 class="card-title">{{ style.name }}</h6>
+                                                <p class="card-text small">{{ style.description }}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                
+                                <div class="mt-4">
+                                    <h6>Style Parameters</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Style Strength</label>
+                                        <input type="range" class="form-range" id="styleStrength" min="0.1" max="1.0" step="0.05" value="0.75">
+                                        <div class="d-flex justify-content-between">
+                                            <small>Subtle</small>
+                                            <small>Balanced</small>
+                                            <small>Strong</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Upload Reference Image (Optional)</label>
+                                        <input type="file" class="form-control" id="referenceImage" accept="image/*">
+                                    </div>
+                                    
+                                    <button class="btn btn-primary mt-2" id="previewBtn">
+                                        <i class="fas fa-eye me-2"></i>Preview Style
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="card-title">Export Options</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Export Format</label>
+                                    <select class="form-select" id="exportFormat">
+                                        {% for format in export_formats %}
+                                        <option value="{{ format.id }}">{{ format.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Cell Size (meters)</label>
+                                    <select class="form-select" id="cellSize">
+                                        <option value="50">50m (Very Detailed, Small Area)</option>
+                                        <option value="100" selected>100m (Detailed, Standard)</option>
+                                        <option value="250">250m (Medium Detail, Larger Area)</option>
+                                        <option value="500">500m (Low Detail, Very Large Area)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="includeInteriors">
+                                    <label class="form-check-label" for="includeInteriors">
+                                        Generate Building Interiors (Experimental)
+                                    </label>
+                                </div>
+                                
+                                <button class="btn btn-success mt-2" id="generateBtn">
+                                    <i class="fas fa-play me-2"></i>Start Generation
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Preview Modal -->
+                <div class="modal fade" id="previewModal" tabindex="-1">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Style Preview</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6>Original</h6>
+                                        <img id="originalPreview" class="img-fluid preview-image" src="" alt="Original">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6>Stylized</h6>
+                                        <img id="stylizedPreview" class="img-fluid preview-image" src="" alt="Stylized">
+                                        <div class="d-flex justify-content-center mt-3 preview-loader">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                            <div class="ms-3">Generating preview...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Jobs Tab -->
+            <div class="tab-pane fade" id="jobsTab">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Jobs</h5>
+                        <button class="btn btn-sm btn-outline-secondary" id="refreshJobsBtn">
+                            <i class="fas fa-sync-alt me-1"></i>Refresh
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Job ID</th>
+                                        <th>Created</th>
+                                        <th>Status</th>
+                                        <th>Progress</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="jobsTableBody">
+                                    <!-- Jobs will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Job Details Modal -->
+                <div class="modal fade" id="jobDetailsModal" tabindex="-1">
+                    <div class="modal-dialog modal-xl">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Job Details</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="card mb-3">
+                                            <div class="card-header">
+                                                <h6 class="card-title mb-0">Job Information</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <dl class="row">
+                                                    <dt class="col-sm-4">Job ID:</dt>
+                                                    <dd class="col-sm-8" id="jobDetailId"></dd>
+                                                    
+                                                    <dt class="col-sm-4">Status:</dt>
+                                                    <dd class="col-sm-8" id="jobDetailStatus"></dd>
+                                                    
+                                                    <dt class="col-sm-4">Created:</dt>
+                                                    <dd class="col-sm-8" id="jobDetailCreated"></dd>
+                                                    
+                                                    <dt class="col-sm-4">Duration:</dt>
+                                                    <dd class="col-sm-8" id="jobDetailDuration"></dd>
+                                                    
+                                                    <dt class="col-sm-4">Style:</dt>
+                                                    <dd class="col-sm-8" id="jobDetailStyle"></dd>
+                                                    
+                                                    <dt class="col-sm-4">Export Format:</dt>
+                                                    <dd class="col-sm-8" id="jobDetailFormat"></dd>
+                                                </dl>
+                                                
+                                                <div id="jobProgressContainer" class="mt-3">
+                                                    <label class="form-label" id="jobProgressLabel">Progress: 0%</label>
+                                                    <div class="progress">
+                                                        <div id="jobProgressBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                                    </div>
+                                                    <small id="jobStatusMessage" class="text-muted"></small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="card mb-3">
+                                            <div class="card-header">
+                                                <h6 class="card-title mb-0">Area</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="jobDetailMap" style="height: 300px;"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="card mb-3">
+                                            <div class="card-header">
+                                                <h6 class="card-title mb-0">Results</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="jobResultsEmpty" class="text-center py-5">
+                                                    <i class="fas fa-hourglass-half fa-3x mb-3 text-muted"></i>
+                                                    <h5>Results not yet available</h5>
+                                                    <p class="text-muted">Please wait for the job to complete.</p>
+                                                </div>
+                                                
+                                                <div id="jobResultsContent" class="d-none">
+                                                    <div class="mb-3">
+                                                        <h6>Download Options</h6>
+                                                        <button class="btn btn-primary" id="downloadAllBtn">
+                                                            <i class="fas fa-download me-2"></i>Download All
+                                                        </button>
+                                                    </div>
+                                                    
+                                                    <div class="mt-4">
+                                                        <h6>Preview</h6>
+                                                        <div id="jobResultPreviews" class="row"></div>
+                                                    </div>
+                                                    
+                                                    <div class="mt-4">
+                                                        <h6>Files</h6>
+                                                        <div class="table-responsive">
+                                                            <table class="table table-sm">
+                                                                <thead>
+                                                                    <tr>
+                                                                        <th>Filename</th>
+                                                                        <th>Size</th>
+                                                                        <th>Download</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody id="jobFilesList"></tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div id="jobErrorCard" class="card mb-3 d-none">
+                                            <div class="card-header bg-danger text-white">
+                                                <h6 class="card-title mb-0">Error</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <pre id="jobErrorDetails" class="p-3 bg-light"></pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-danger me-auto" id="cancelJobBtn">
+                                    <i class="fas fa-stop-circle me-2"></i>Cancel Job
+                                </button>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Style Editor Tab -->
+            <div class="tab-pane fade" id="styleEditorTab">
+                <div class="row">
+                    <div class="col-lg-4">
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">Styles</h5>
+                                <button class="btn btn-sm btn-primary" id="addStyleBtn">
+                                    <i class="fas fa-plus me-1"></i>New Style
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <ul class="list-group list-group-flush" id="stylesList">
+                                    <!-- Styles will be populated here -->
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title">Style Editor</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="styleEditorForm">
+                                    <div class="mb-3">
+                                        <label class="form-label">Style Name</label>
+                                        <input type="text" class="form-control" id="styleName" placeholder="Enter style name...">
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Description</label>
+                                        <textarea class="form-control" id="styleDescription" rows="2" placeholder="Enter style description..."></textarea>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Thumbnail Image</label>
+                                        <input type="file" class="form-control" id="styleThumbnail" accept="image/*">
+                                        <div class="mt-2" id="thumbnailPreviewContainer">
+                                            <img id="thumbnailPreview" class="img-thumbnail" style="max-height: 100px; display: none;">
+                                        </div>
+                                    </div>
+                                    
+                                    <hr>
+                                    
+                                    <h6>Prompt Settings</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Base Prompt</label>
+                                        <textarea class="form-control" id="stylePrompt" rows="3" placeholder="Enter base prompt for the style..."></textarea>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Negative Prompt</label>
+                                        <textarea class="form-control" id="styleNegativePrompt" rows="2" placeholder="Enter negative prompt..."></textarea>
+                                    </div>
+                                    
+                                    <hr>
+                                    
+                                    <h6>Style Parameters</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Default Strength</label>
+                                            <input type="range" class="form-range" id="styleDefaultStrength" min="0.1" max="1.0" step="0.05" value="0.75">
+                                            <div class="d-flex justify-content-between">
+                                                <small>0.1</small>
+                                                <small>0.5</small>
+                                                <small>1.0</small>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="col-md-6">
+                                            <label class="form-label">Steps</label>
+                                            <input type="range" class="form-range" id="styleSteps" min="15" max="50" step="1" value="30">
+                                            <div class="d-flex justify-content-between">
+                                                <small>15</small>
+                                                <small>30</small>
+                                                <small>50</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <hr>
+                                    
+                                    <h6>Advanced Settings</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Model</label>
+                                        <select class="form-select" id="styleModel">
+                                            <option value="flux1-dev">Flux 1-dev (Default)</option>
+                                            <option value="flux2-concept">Flux 2 Concept</option>
+                                            <option value="custom">Custom Model</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-3" id="customModelContainer" style="display: none;">
+                                        <label class="form-label">Custom Model Path</label>
+                                        <input type="text" class="form-control" id="customModelPath" placeholder="Enter path to custom model...">
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">ControlNet Type</label>
+                                        <select class="form-select" id="controlnetType">
+                                            <option value="canny">Canny Edge (Default)</option>
+                                            <option value="depth">Depth</option>
+                                            <option value="normal">Normal Map</option>
+                                            <option value="none">None</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <button type="submit" class="btn btn-primary mt-3">Save Style</button>
+                                    <button type="button" class="btn btn-danger mt-3 ms-2" id="deleteStyleBtn">Delete Style</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Settings Tab -->
+            <div class="tab-pane fade" id="settingsTab">
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="card-title">System Settings</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="systemSettingsForm">
+                                    <div class="mb-3">
+                                        <label class="form-label">Output Directory</label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="outputDirectory" value="{{ config.output_directory }}">
+                                            <button class="btn btn-outline-secondary" type="button" id="browseOutputDirBtn">Browse</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Max Concurrent Tasks</label>
+                                        <input type="number" class="form-control" id="maxConcurrentTasks" min="1" max="16" value="{{ config.max_concurrent_tasks }}">
+                                        <small class="form-text text-muted">Maximum number of processing tasks to run in parallel.</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Preview Quality</label>
+                                        <select class="form-select" id="previewQuality">
+                                            <option value="low" {% if config.preview_quality == 'low' %}selected{% endif %}>Low (Fast)</option>
+                                            <option value="medium" {% if config.preview_quality == 'medium' %}selected{% endif %}>Medium (Balanced)</option>
+                                            <option value="high" {% if config.preview_quality == 'high' %}selected{% endif %}>High (Slow)</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="enableGPUAcceleration" {% if config.use_gpu %}checked{% endif %}>
+                                            <label class="form-check-label" for="enableGPUAcceleration">Enable GPU Acceleration</label>
+                                        </div>
+                                        <small class="form-text text-muted">Use GPU for accelerated processing (requires CUDA compatible hardware).</small>
+                                    </div>
+                                    
+                                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-lg-6">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="card-title">API Settings</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="apiSettingsForm">
+                                    <div class="mb-3">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="enableApi" {% if config.api_enabled %}checked{% endif %}>
+                                            <label class="form-check-label" for="enableApi">Enable API</label>
+                                        </div>
+                                        <small class="form-text text-muted">Allow external applications to access Arcanum via HTTP API.</small>
+                                    </div>
+                                    
+                                    <div id="apiConfigContainer" {% if not config.api_enabled %}style="display: none;"{% endif %}>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="apiKey" value="{{ config.api_key }}" readonly>
+                                                <button class="btn btn-outline-secondary" type="button" id="regenerateApiKeyBtn">Regenerate</button>
+                                            </div>
+                                            <small class="form-text text-muted">This key is required for authentication with the API.</small>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label class="form-label">CORS Allowed Origins</label>
+                                            <input type="text" class="form-control" id="corsAllowedOrigins" value="{{ config.cors_allowed_origins }}">
+                                            <small class="form-text text-muted">Comma-separated list of origins allowed to access the API (e.g., http://example.com). Use * for all origins.</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <button type="submit" class="btn btn-primary">Save API Settings</button>
+                                </form>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title">System Information</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <button class="btn btn-outline-primary" id="checkGpuBtn">
+                                        <i class="fas fa-microchip me-2"></i>Check GPU Status
+                                    </button>
+                                </div>
+                                
+                                <div id="systemInfoContainer" class="d-none">
+                                    <h6>System Information</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <tbody id="systemInfoTable"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- JavaScript Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    
+    <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jobs.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/styles.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+</body>
+</html>

@@ -1540,33 +1540,45 @@ python arcanum.py transform --input ./my_images --output ./styled_images --promp
 
 Arcanum is organized into several modules:
 
+### Module Structure
+
+Arcanum has been refactored into a modular structure where all functionality is organized into the `modules` package:
+
+```
+modules/
+├── comfyui/              # ComfyUI integration for style transfer
+├── geo/                  # Geographic utilities
+├── integration/          # System integration modules
+├── osm/                  # OpenStreetMap data processing
+└── storage/              # Storage management
+```
+
 ### Data Collection Modules
 
 - **OSM Module**: Handles downloading and processing OpenStreetMap data
   ```python
-  from modules import osm
-  result = osm.download_osm_data(bounds, output_dir)
+  from modules.osm import bbox_downloader
+  result = bbox_downloader.download_osm_data(bounds, output_dir)
   ```
 
 - **Google 3D Tiles**: Manages photorealistic 3D city model download
   ```python
-  from integration_tools import google_3d_tiles_integration
+  from modules.integration import google_3d_tiles_integration
   result = google_3d_tiles_integration.fetch_city_tiles("London", output_dir)
   ```
 
 - **Street View Integration**: Collects street-level imagery along road networks
   ```python
-  from integration_tools import street_view_integration
-  from integration_tools import road_network
-  result = road_network.fetch_street_view_along_roads(osm_path, output_dir)
+  from modules.integration import road_network_integration
+  result = road_network_integration.fetch_street_view_along_roads(osm_path, output_dir)
   ```
 
 ### Styling and Processing
 
 - **ComfyUI Module**: Integrates with ComfyUI and  Flux models for image transformation
   ```python
-  from modules import comfyui
-  transformer = comfyui.ArcanumStyleTransformer()
+  from modules.comfyui.automation import ComfyUIStyleTransformer
+  transformer = ComfyUIStyleTransformer()
   result_paths = transformer.batch_transform_images(image_paths, output_dir, prompt)
   ```
 
@@ -1574,14 +1586,21 @@ Arcanum is organized into several modules:
 
 - **Coverage Verification**: Ensures comprehensive coverage of target areas
   ```python
-  from integration_tools import coverage_verification
-  verifier = coverage_verification.CoverageVerifier(bounds=city_bounds)
+  from modules.integration.coverage_verification import CoverageVerifier
+  verifier = CoverageVerifier(bounds=city_bounds)
   result = verifier.verify_3d_tiles_coverage(tiles_dir)
+  ```
+
+- **Storage Integration**: Manages storage and cloud uploads
+  ```python
+  from modules.storage.storage_integration import ArcanumStorageIntegration
+  storage = ArcanumStorageIntegration()
+  result = storage.transform_and_upload_directory(input_dir, tileset_name="arcanum")
   ```
 
 - **Unity Integration**: Prepares assets for Unity3D import
   ```python
-  from integration_tools import unity_integration
+  from modules.integration import unity_integration
   unity_integration.prepare_unity_assets(models_dir, textures_dir, output_dir)
   ```
 
@@ -1591,6 +1610,7 @@ For more detailed information, see the following documents:
 
 - [Installation Guide](docs/installation.md) - Detailed setup instructions
 - [Technical Documentation](docs/technical_documentation.md) - System architecture and implementation details
+- [Migration Guide](docs/MIGRATION_GUIDE.md) - Guide to migrate to the new module structure
 - [Google 3D Tiles Integration](docs/google_3d_tiles_integration.md) - Working with Google Maps 3D Tiles
 - [Street View Integration](docs/street_view_integration.md) - Road-based Street View collection
 - [Coverage Verification](docs/coverage_verification.md) - Ensuring comprehensive coverage
