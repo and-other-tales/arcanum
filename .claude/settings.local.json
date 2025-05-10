@@ -22,7 +22,8 @@
       "Bash(env)",
       "Bash(find:*)",
       "Bash(mv:*)",
-      "WebFetch(domain:huggingface.co)"
+      "WebFetch(domain:huggingface.co)",
+      "Bash(source .env)"
     ],
     "deny": []
   }
