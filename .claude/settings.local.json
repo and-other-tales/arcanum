@@ -24,7 +24,10 @@
       "Bash(mv:*)",
       "WebFetch(domain:huggingface.co)",
       "Bash(source .env)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(./fix_environment.sh:*)",
+      "Bash(./fix_environment_v2.sh:*)",
+      "Bash(./fix_environment_v3.sh:*)"
     ],
     "deny": []
   }
