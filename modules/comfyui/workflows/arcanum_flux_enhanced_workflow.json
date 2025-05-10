@@ -1,0 +1,49 @@
+{
+    "nodes": [
+        {
+            "id": 1,
+            "type": "load_image",
+            "inputs": {
+                "image": "[[PLACEHOLDER]]"
+            }
+        },
+        {
+            "id": 2,
+            "type": "flux_controlnet",
+            "inputs": {
+                "image": ["1", 0],
+                "control_type": "canny",
+                "conditioning_scale": 1.0
+            }
+        },
+        {
+            "id": 3, 
+            "type": "flux_img2img",
+            "inputs": {
+                "prompt": "[[PROMPT]]",
+                "negative_prompt": "[[NEGATIVE_PROMPT]]",
+                "image": ["1", 0],
+                "control": ["2", 0],
+                "strength": 0.75,
+                "steps": 20
+            }
+        },
+        {
+            "id": 4,
+            "type": "upscale_image",
+            "inputs": {
+                "image": ["3", 0],
+                "upscale_method": "flux_upscaler",
+                "scale": 2.0
+            }
+        },
+        {
+            "id": 5,
+            "type": "save_image",
+            "inputs": {
+                "images": ["4", 0],
+                "filename_prefix": "arcanum_enhanced_"
+            }
+        }
+    ]
+}

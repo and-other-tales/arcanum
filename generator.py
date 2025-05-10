@@ -18,6 +18,20 @@ import io
 import functools
 import warnings
 
+# Import our OSMnx configuration utilities if available
+try:
+    from osmnx_config import configure_osmnx
+    OSMNX_CONFIG_AVAILABLE = True
+except ImportError:
+    OSMNX_CONFIG_AVAILABLE = False
+
+# Import our grid-based OSM downloader if available
+try:
+    from osm_grid_downloader import download_osm_grid, merge_grid_data
+    GRID_DOWNLOADER_AVAILABLE = True
+except ImportError:
+    GRID_DOWNLOADER_AVAILABLE = False
+
 # Comment out LangChain imports since we're bypassing the LangChain tool validation
 # from langchain_core.messages import AIMessage, HumanMessage
 # from langchain_core.output_parsers import StrOutputParser
@@ -167,13 +181,13 @@ logging.basicConfig(
 PROJECT_CONFIG = {
     "project_name": "Arcanum3D",
     "output_directory": "./arcanum_3d_output",
-    "coordinate_system": "EPSG:27700",  # British National Grid
-    "center_point": (530700, 177800),   # Approximate center of Arcanum
+    "coordinate_system": "EPSG:4326",  # WGS84 (latitude/longitude)
+    "center_point": (51.5074, -0.1278),  # Approximate center of Arcanum (London)
     "bounds": {
-        "north": 560000,  # Northern extent in BNG
-        "south": 500000,  # Southern extent in BNG
-        "east": 560000,   # Eastern extent in BNG
-        "west": 500000    # Western extent in BNG
+        "north": 51.5084,  # Northern extent (latitude) - ~100m north of center
+        "south": 51.5064,  # Southern extent (latitude) - ~100m south of center
+        "east": -0.1258,   # Eastern extent (longitude) - ~100m east of center
+        "west": -0.1298    # Western extent (longitude) - ~100m west of center
     },
     "cell_size": 1000,    # 1km grid cells for processing
     "lod_levels": {
@@ -249,15 +263,33 @@ class DataCollectionAgent:
     def download_osm_data(self, bounds: Dict[str, float]) -> str:
         """Download OpenStreetMap data for the specified area."""
         try:
-            # Convert BNG coordinates to lat/lon for OSM
-            transformer = pyproj.Transformer.from_crs(
-                self.config["coordinate_system"],
-                "EPSG:4326",  # WGS84
-                always_xy=True
-            )
+            # Configure OSMnx with increased limits if our configuration module is available
+            if OSMNX_CONFIG_AVAILABLE:
+                logger.info("Configuring OSMnx with increased query area size and memory allocation")
+                configure_osmnx(
+                    max_query_area_size=1000000000000,  # 1 trillion sq meters
+                    timeout=600,                        # 10 minutes
+                    memory=2147483648                   # 2GB memory allocation
+                )
 
-            north, east = transformer.transform(bounds["east"], bounds["north"])
-            south, west = transformer.transform(bounds["west"], bounds["south"])
+            # Convert coordinates to lat/lon for OSM if needed
+            if self.config["coordinate_system"] != "EPSG:4326":
+                transformer = pyproj.Transformer.from_crs(
+                    self.config["coordinate_system"],
+                    "EPSG:4326",  # WGS84
+                    always_xy=True
+                )
+
+                north, east = transformer.transform(bounds["east"], bounds["north"])
+                south, west = transformer.transform(bounds["west"], bounds["south"])
+            else:
+                # Already in lat/lon
+                north = bounds["north"]
+                south = bounds["south"]
+                east = bounds["east"]
+                west = bounds["west"]
+
+            logger.info(f"Query bounds (EPSG:4326): N:{north}, S:{south}, E:{east}, W:{west}")
 
             # Create vector directory if it doesn't exist
             vector_dir = os.path.join(self.output_dir, "vector")
@@ -266,40 +298,49 @@ class DataCollectionAgent:
 
             # Try to download OSM data using osmnx
             try:
+                # Get OSMnx version to determine the correct API to use
+                try:
+                    osmnx_version = ox.__version__
+                except AttributeError:
+                    osmnx_version = "unknown"
+
+                logger.info(f"Using OSMnx version: {osmnx_version}")
+
                 # Create dictionary of parameters for graph_from_bbox
                 bbox_params = {'north': north, 'south': south, 'east': east, 'west': west, 'network_type': 'all'}
 
-                # Handle osmnx API differences by checking version or trying different approaches
-                try:
+                # Handle osmnx API differences by checking version
+                if osmnx_version and osmnx_version.startswith("1."):
+                    # Legacy OSMnx 1.x approach with positional arguments
+                    logger.info("Using legacy OSMnx 1.x API with positional arguments")
+                    G = ox.graph_from_bbox(north, south, east, west, network_type='all')
+                else:
                     # Modern OSMnx 2.x approach with single bbox parameter
+                    logger.info("Using modern OSMnx 2.x API with bbox dictionary")
                     G = ox.graph_from_bbox(
                         bbox=(north, south, east, west),
                         network_type='all'
                     )
-                except (TypeError, ValueError) as e:
-                    try:
-                        logger.info(f"First graph_from_bbox attempt failed: {str(e)}, trying legacy approach")
-                        # Legacy OSMnx 1.x approach with positional arguments
-                        G = ox.graph_from_bbox(north, south, east, west, network_type='all')
-                    except Exception as e2:
-                        logger.error(f"Could not call graph_from_bbox with either approach: {str(e2)}")
-                        # Another approach: use graph_from_place as fallback
-                        logger.info("Falling back to graph_from_place")
-                        G = ox.graph_from_place("London, UK", network_type='all')
+
+                logger.info("Successfully downloaded road network graph")
 
                 # Get buildings
+                logger.info("Downloading building data...")
                 buildings = ox.features_from_bbox(north, south, east, west, tags={'building': True})
+                logger.info(f"Downloaded {len(buildings)} buildings")
 
                 # Save data to GeoPackage format
                 osm_output = os.path.join(vector_dir, "osm_arcanum.gpkg")
                 buildings.to_file(osm_output, layer='buildings', driver='GPKG')
+                logger.info(f"Saved buildings to {osm_output}")
 
                 # Save road network separately
                 roads_output = os.path.join(vector_dir, "osm_roads.gpkg")
                 roads_gdf = ox.graph_to_gdfs(G, nodes=False, edges=True)
                 roads_gdf.to_file(roads_output, layer='roads', driver='GPKG')
+                logger.info(f"Saved roads to {roads_output}")
 
-                return f"OSM data downloaded and saved to {osm_output}"
+                return f"OSM data downloaded and saved to {osm_output} and {roads_output}"
             except Exception as osm_error:
                 logger.warning(f"OSM download error: {str(osm_error)}. Creating placeholders...")
 

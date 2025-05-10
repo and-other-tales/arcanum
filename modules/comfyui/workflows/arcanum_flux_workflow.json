@@ -1,0 +1,30 @@
+{
+    "nodes": [
+        {
+            "id": 1,
+            "type": "load_image",
+            "inputs": {
+                "image": "[[PLACEHOLDER]]"
+            }
+        },
+        {
+            "id": 2,
+            "type": "flux_img2img",
+            "inputs": {
+                "prompt": "[[PROMPT]]",
+                "negative_prompt": "[[NEGATIVE_PROMPT]]",
+                "image": ["1", 0],
+                "strength": 0.75,
+                "steps": 20
+            }
+        },
+        {
+            "id": 3,
+            "type": "save_image",
+            "inputs": {
+                "images": ["2", 0],
+                "filename_prefix": "arcanum_"
+            }
+        }
+    ]
+}
