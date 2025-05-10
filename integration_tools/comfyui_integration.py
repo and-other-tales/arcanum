@@ -215,7 +215,8 @@ The material should remain seamless if it is a tileable texture.
     }
 
     def __init__(self, comfyui_path: str = None, host: str = "127.0.0.1", port: int = 8188,
-                 use_diffusers: bool = True, use_blip2: bool = True, device: str = None):
+                 use_diffusers: bool = True, use_blip2: bool = True, device: str = None,
+                 hf_token: str = None):
         """Initialize the Style Transformer.
 
         Args:
@@ -238,6 +239,7 @@ The material should remain seamless if it is a tileable texture.
         # Initialize diffusers pipeline
         self.pipe = None
         self.processor = None
+        self.hf_token = hf_token or os.environ.get("HUGGINGFACE_TOKEN")
 
         # Initialize BLIP-2 for image captioning
         self.blip2_processor = None
@@ -513,10 +515,18 @@ The material should remain seamless if it is a tileable texture.
                 if self.device == "cuda" and torch.cuda.is_bf16_supported():
                     dtype = torch.bfloat16
 
-                # Initialize pipeline
+                # Get HuggingFace token from class attribute or environment
+                hf_token = self.hf_token
+                if hf_token:
+                    logger.info("Using HuggingFace token for gated model access")
+                else:
+                    logger.warning("No HuggingFace token available, gated model access may fail")
+
+                # Initialize pipeline with token for gated model access
                 self.pipe = FluxControlPipeline.from_pretrained(
                     "black-forest-labs/FLUX.1-Canny-dev",
-                    torch_dtype=dtype
+                    torch_dtype=dtype,
+                    use_auth_token=hf_token
                 ).to(self.device)
 
                 logger.info("FLUX.1-Canny-dev pipeline initialized successfully")
@@ -552,23 +562,55 @@ The material should remain seamless if it is a tileable texture.
             # Process the image with BLIP-2
             inputs = self.blip2_processor(images=image, return_tensors="pt").to(self.device)
 
-            # Generate caption
+            # Generate detailed caption focusing on visual details rather than just naming the location
             with torch.no_grad():
+                # Use a prompt engineering approach to guide the model toward describing visual details
+                # Note: Unfortunately BLIP-2 doesn't accept a text prompt for guidance, so we'll use other parameters instead
+                # We'll rely on the longer min_length, sampling parameters, and processing the output
+
                 generated_ids = self.blip2_model.generate(
                     **inputs,
-                    max_length=100,  # Allow for longer, more detailed captions
-                    do_sample=False,  # Use beam search for deterministic output
-                    num_beams=5       # Use beam search for better quality
+                    max_length=150,     # Allow for longer, more detailed captions
+                    do_sample=True,     # Use sampling for more creative descriptions
+                    temperature=0.7,    # Control randomness (higher = more diverse)
+                    top_p=0.9,          # Nucleus sampling for controlled diversity
+                    num_beams=5,        # Use beam search for quality
+                    min_length=30       # Ensure a minimum length for descriptions
                 )
 
-            # Decode and clean the caption
-            caption = self.blip2_processor.batch_decode(
+            # Decode the basic caption
+            base_caption = self.blip2_processor.batch_decode(
                 generated_ids,
                 skip_special_tokens=True
             )[0].strip()
 
-            logger.info(f"Generated caption: {caption}")
-            return caption
+            # Enhance the caption for more detailed stylization
+            # If caption is too general (just naming a location), add more details
+            if len(base_caption.split()) < 10:
+                # For short captions, add more descriptive context
+                if "london" in base_caption.lower():
+                    base_caption += (
+                        ". The scene features distinctive architectural elements of historic London, "
+                        "with imposing stone structures, ornate details, varied textures, "
+                        "and a moody atmosphere with dramatic lighting."
+                    )
+                elif "cathedral" in base_caption.lower() or "church" in base_caption.lower():
+                    base_caption += (
+                        ". The scene showcases elaborate gothic architecture with intricate stone carvings, "
+                        "tall spires, arched windows, textured stonework, and dramatic lighting "
+                        "highlighting the ornate details and imposing structure."
+                    )
+                elif "bridge" in base_caption.lower():
+                    base_caption += (
+                        ". The structure features a complex arrangement of metal and stone elements, "
+                        "with distinctive industrial patterns, textured surfaces, "
+                        "and atmospheric lighting conditions creating a dramatic scene."
+                    )
+
+            enhanced_caption = base_caption
+
+            logger.info(f"Generated caption: {enhanced_caption}")
+            return enhanced_caption
 
         except Exception as e:
             logger.error(f"Error generating image caption: {str(e)}")

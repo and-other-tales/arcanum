@@ -1114,7 +1114,17 @@ class ArcanumTexturingAgent:
                 comfyui_path = self.config.get("comfyui_path", "./ComfyUI")
                 logger.info(f"Initializing style transformer with ComfyUI at: {comfyui_path}")
                 try:
-                    self.style_transformer = ComfyUIStyleTransformer(comfyui_path=comfyui_path)
+                    # Get HuggingFace token from environment
+                    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
+                    if hf_token:
+                        logger.info("Using HuggingFace token for model access")
+                    else:
+                        logger.warning("No HuggingFace token found in environment - gated model access may fail")
+
+                    self.style_transformer = ComfyUIStyleTransformer(
+                        comfyui_path=comfyui_path,
+                        hf_token=hf_token
+                    )
                     logger.info("Style transformer initialized successfully")
                 except Exception as e:
                     logger.error(f"Failed to initialize style transformer: {str(e)}")
