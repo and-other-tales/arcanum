@@ -4,18 +4,7 @@ Google 3D Tiles Integration Module
 ---------------------------------
 This module provides integration with Google Maps Platform's Photorealistic 3D Tiles API,
 allowing for streaming and processing of photorealistic 3D tiles within the Arcanum system.
-
-DEPRECATED: This module has been moved to modules/integration/google_3d_tiles_integration.py
-Please update your imports to use the new module path.
 """
-
-import warnings
-warnings.warn(
-    "The integration_tools.google_3d_tiles_integration module is deprecated. "
-    "Please use modules.integration.google_3d_tiles_integration instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
 
 import os
 import sys
@@ -23,91 +12,31 @@ import logging
 import json
 import requests
 import math
+import time
+import uuid
 from typing import Dict, List, Any, Optional, Tuple, Union, Set
 from pathlib import Path
-import time
 from urllib.parse import urlparse, urlencode, quote
 
 # Import spatial bounds utilities if available
 try:
-    from integration_tools.spatial_bounds import (
+    from modules.integration.spatial_bounds import (
         bounds_to_polygon, polygon_to_bounds, city_polygon,
         parse_3d_tile_bounds, bounds_contains_tile, create_grid_from_bounds,
         calculate_bounds_area_km2
     )
     SPATIAL_UTILS_AVAILABLE = True
 except ImportError:
-    SPATIAL_UTILS_AVAILABLE = False
-
-# Add module level functions for direct import
-def fetch_tiles(bounds: Dict, output_dir: str, max_depth: int = 3, region: str = None,
-               api_key: str = None, cache_dir: str = None) -> Dict:
-    """Fetch 3D tiles for the specified bounds and save to output directory.
-
-    This is a module-level function that creates a Google3DTilesIntegration instance
-    and delegates to its fetch_tiles method.
-
-    Args:
-        bounds: Dictionary with lat/lon bounds (e.g. {"south": 37.7, "west": -122.5, "north": 37.8, "east": -122.4})
-        output_dir: Directory to save downloaded tiles
-        max_depth: Maximum recursion depth for tile fetching
-        region: Optional region name (default global tileset)
-        api_key: Google Maps API key with 3D Tiles access (from env var if None)
-        cache_dir: Directory to cache downloaded tiles
-
-    Returns:
-        Dictionary with download results including success status
-    """
-    # Create class instance and configure it with API key
-    integration = Google3DTilesIntegration(
-        api_key=api_key,
-        cache_dir=cache_dir
-    )
-
-    # Log the request
-    logging.info(f"Fetching 3D tiles for bounds {bounds} with max_depth={max_depth}, region={region}")
-
-    # Delegate to the class method
-    return integration.fetch_tiles(bounds, output_dir, max_depth, region)
-
-def fetch_city_tiles(city_name: str, output_dir: str, max_depth: int = 4, region: str = None,
-                   api_key: str = None, cache_dir: str = None) -> Dict:
-    """Fetch 3D tiles for an entire city and save to output directory.
-
-    This is a module-level function that creates a Google3DTilesIntegration instance
-    and delegates to its fetch_city_tiles method.
-
-    Args:
-        city_name: Name of the city (e.g., "London", "New York")
-        output_dir: Directory to save downloaded tiles
-        max_depth: Maximum recursion depth for tile fetching
-        region: Optional region name (default global tileset)
-        api_key: Google Maps API key with 3D Tiles access (from env var if None)
-        cache_dir: Directory to cache downloaded tiles
-
-    Returns:
-        Dictionary with download results including success status
-    """
-    if not SPATIAL_UTILS_AVAILABLE:
-        return {
-            "success": False,
-            "error": "Spatial utilities not available. Install shapely and pyproj packages."
-        }
-
-    # Create class instance and configure it with API key
-    integration = Google3DTilesIntegration(
-        api_key=api_key,
-        cache_dir=cache_dir
-    )
-
-    # Log the request
-    logging.info(f"Fetching 3D tiles for city '{city_name}' with max_depth={max_depth}, region={region}")
-
-    # Delegate to the class method
-    return integration.fetch_city_tiles(city_name, output_dir, max_depth, region)
-
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Fall back to legacy import
+    try:
+        from integration_tools.spatial_bounds import (
+            bounds_to_polygon, polygon_to_bounds, city_polygon,
+            parse_3d_tile_bounds, bounds_contains_tile, create_grid_from_bounds,
+            calculate_bounds_area_km2
+        )
+        SPATIAL_UTILS_AVAILABLE = True
+    except ImportError:
+        SPATIAL_UTILS_AVAILABLE = False
 
 # Initialize logger
 logging.basicConfig(
@@ -138,6 +67,8 @@ class Google3DTilesIntegration:
             retries: Number of retries for failed requests
             timeout: Timeout in seconds for requests
         """
+        # Generate a session token for this integration instance
+        self.session_token = f"arcanum_session_{uuid.uuid4().hex[:8]}_{int(time.time())}"
         # Load API key from environment if not provided
         self.api_key = api_key or os.environ.get("GOOGLE_MAPS_API_KEY")
         if not self.api_key:
@@ -164,25 +95,30 @@ class Google3DTilesIntegration:
     
     def get_tileset_url(self, region: str = None) -> str:
         """Get the tileset.json URL for a region.
-        
+
         Args:
             region: Optional region name (default global tileset)
-            
+
         Returns:
             URL for tileset.json with API key included
         """
-        # Build the tileset URL for the region
-        url = f"{self.base_url}{self.tileset_endpoint}/tileset.json"
-        
-        # Add API key
-        params = {"key": self.api_key}
+        # Build the tileset URL according to the official documentation
+        # https://developers.google.com/maps/documentation/tile/use-renderer
+        url = "https://tile.googleapis.com/v1/3dtiles/root.json"
+
+        # Add API key and session token
+        params = {
+            "key": self.api_key,
+            "session": self.session_token
+        }
+
+        # Add region if specified
         if region:
             params["region"] = region
-            
+
         # Append parameters
-        if params:
-            url = f"{url}?{urlencode(params)}"
-            
+        url = f"{url}?{urlencode(params)}"
+
         return url
     
     def get_metadata_url(self) -> str:
@@ -689,8 +625,8 @@ class Google3DTilesIntegration:
             
             # If we have a storage manager, upload to it
             if storage_manager:
-                # Import here to avoid circular imports
-                from storage_manager import ArcanumStorageManager
+                # Import from modules structure
+                from modules.storage.storage import ArcanumStorageManager
                 
                 if not isinstance(storage_manager, ArcanumStorageManager):
                     logger.warning("Provided storage_manager is not an ArcanumStorageManager instance")
@@ -764,6 +700,73 @@ class Google3DTilesIntegration:
                 "error": str(e),
                 "success": False
             }
+
+# Module level functions for direct import
+def fetch_tiles(bounds: Dict, output_dir: str, max_depth: int = 3, region: str = None,
+               api_key: str = None, cache_dir: str = None) -> Dict:
+    """Fetch 3D tiles for the specified bounds and save to output directory.
+
+    This is a module-level function that creates a Google3DTilesIntegration instance
+    and delegates to its fetch_tiles method.
+
+    Args:
+        bounds: Dictionary with lat/lon bounds (e.g. {"south": 37.7, "west": -122.5, "north": 37.8, "east": -122.4})
+        output_dir: Directory to save downloaded tiles
+        max_depth: Maximum recursion depth for tile fetching
+        region: Optional region name (default global tileset)
+        api_key: Google Maps API key with 3D Tiles access (from env var if None)
+        cache_dir: Directory to cache downloaded tiles
+
+    Returns:
+        Dictionary with download results including success status
+    """
+    # Create class instance and configure it with API key
+    integration = Google3DTilesIntegration(
+        api_key=api_key,
+        cache_dir=cache_dir
+    )
+
+    # Log the request
+    logging.info(f"Fetching 3D tiles for bounds {bounds} with max_depth={max_depth}, region={region}")
+
+    # Delegate to the class method
+    return integration.fetch_tiles(bounds, output_dir, max_depth, region)
+
+def fetch_city_tiles(city_name: str, output_dir: str, max_depth: int = 4, region: str = None,
+                   api_key: str = None, cache_dir: str = None) -> Dict:
+    """Fetch 3D tiles for an entire city and save to output directory.
+
+    This is a module-level function that creates a Google3DTilesIntegration instance
+    and delegates to its fetch_city_tiles method.
+
+    Args:
+        city_name: Name of the city (e.g., "London", "New York")
+        output_dir: Directory to save downloaded tiles
+        max_depth: Maximum recursion depth for tile fetching
+        region: Optional region name (default global tileset)
+        api_key: Google Maps API key with 3D Tiles access (from env var if None)
+        cache_dir: Directory to cache downloaded tiles
+
+    Returns:
+        Dictionary with download results including success status
+    """
+    if not SPATIAL_UTILS_AVAILABLE:
+        return {
+            "success": False,
+            "error": "Spatial utilities not available. Install shapely and pyproj packages."
+        }
+
+    # Create class instance and configure it with API key
+    integration = Google3DTilesIntegration(
+        api_key=api_key,
+        cache_dir=cache_dir
+    )
+
+    # Log the request
+    logging.info(f"Fetching 3D tiles for city '{city_name}' with max_depth={max_depth}, region={region}")
+
+    # Delegate to the class method
+    return integration.fetch_city_tiles(city_name, output_dir, max_depth, region)
 
 def main():
     """Main function for testing the module."""
@@ -839,7 +842,6 @@ def main():
         try:
             # Conditionally import storage manager
             try:
-                sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 from storage_manager import ArcanumStorageManager
                 storage_manager = ArcanumStorageManager()
             except ImportError:

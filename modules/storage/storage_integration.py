@@ -4,18 +4,7 @@ Arcanum Storage Integration Module
 ----------------------------------
 This module integrates the storage manager with the ComfyUI style transformation,
 ensuring efficient storage usage and GCS bucket uploads.
-
-DEPRECATED: This module has been moved to modules/storage/storage_integration.py
-Please update your imports to use the new module path.
 """
-
-import warnings
-warnings.warn(
-    "The integration_tools.storage_integration module is deprecated. "
-    "Please use modules.storage.storage_integration instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
 
 import os
 import sys
@@ -25,11 +14,19 @@ import shutil
 from pathlib import Path
 
 # Import our storage manager
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from storage_manager import ArcanumStorageManager
+from modules.storage.storage import ArcanumStorageManager
 
-# Import ComfyUI integration
-from integration_tools.comfyui_integration import ComfyUIStyleTransformer
+# Try to import the ComfyUI automation module
+try:
+    from modules.comfyui.automation import ComfyUIStyleTransformer
+    MODULES_AVAILABLE = True
+except ImportError:
+    # Fall back to the legacy integration_tools import
+    try:
+        from integration_tools.comfyui_integration import ComfyUIStyleTransformer
+        MODULES_AVAILABLE = True
+    except ImportError:
+        MODULES_AVAILABLE = False
 
 # Initialize logger
 logging.basicConfig(
@@ -64,6 +61,11 @@ class ArcanumStorageIntegration:
             max_local_cache_size_gb: Maximum size of local cache in GB
             device: Device to use for inference (cuda, cpu, etc.)
         """
+        # Check if ComfyUI module is available
+        if not MODULES_AVAILABLE:
+            logger.warning("ComfyUI modules not available. Style transformation will not work.")
+            self.style_transformer = None
+        
         # Initialize the storage manager
         self.storage_manager = ArcanumStorageManager(
             local_root_dir=local_root_dir,
@@ -73,11 +75,12 @@ class ArcanumStorageIntegration:
             max_local_cache_size_gb=max_local_cache_size_gb
         )
         
-        # Initialize the style transformer
-        self.style_transformer = ComfyUIStyleTransformer(
-            comfyui_path=comfyui_path,
-            device=device
-        )
+        # Initialize the style transformer if modules are available
+        if MODULES_AVAILABLE:
+            self.style_transformer = ComfyUIStyleTransformer(
+                comfyui_path=comfyui_path,
+                device=device
+            )
         
         logger.info("Arcanum Storage Integration initialized")
     
@@ -113,6 +116,15 @@ class ArcanumStorageIntegration:
         """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Input image not found: {image_path}")
+        
+        # Check if ComfyUI module is available
+        if not self.style_transformer:
+            logger.error("ComfyUI style transformer not available. Cannot transform images.")
+            return {
+                "success": False,
+                "error": "ComfyUI style transformer not available",
+                "image_path": image_path
+            }
         
         # Extract coordinates from filename if not provided
         if x is None or y is None:
@@ -179,6 +191,15 @@ class ArcanumStorageIntegration:
         """
         if not os.path.exists(input_dir) or not os.path.isdir(input_dir):
             raise ValueError(f"Input directory not found: {input_dir}")
+            
+        # Check if ComfyUI module is available
+        if not self.style_transformer:
+            logger.error("ComfyUI style transformer not available. Cannot transform images.")
+            return [{
+                "success": False,
+                "error": "ComfyUI style transformer not available",
+                "directory": input_dir
+            }]
         
         # Create a transformation function that uses our style transformer
         def transform_function(src_path, dst_path):
@@ -219,7 +240,7 @@ class ArcanumStorageIntegration:
         """
         # Create a specialized prompt for satellite imagery
         satellite_prompt = """arcanum aerial view, gothic victorian fantasy steampunk city,
-alternative London, dark atmosphere, fog and mist, intricate cityscape, aerial perspective"""
+        alternative London, dark atmosphere, fog and mist, intricate cityscape, aerial perspective"""
         
         # Use a lower strength for satellite imagery to preserve geographic features
         return self.transform_and_upload_directory(
@@ -245,7 +266,7 @@ alternative London, dark atmosphere, fog and mist, intricate cityscape, aerial p
         """
         # Create a specialized prompt for street view imagery
         street_view_prompt = """arcanum street view, gothic victorian fantasy steampunk,
-alternative London, dark atmosphere, ornate building details, foggy streets, gas lamps, mystical"""
+        alternative London, dark atmosphere, ornate building details, foggy streets, gas lamps, mystical"""
         
         return self.transform_and_upload_directory(
             input_dir=street_view_dir,
@@ -274,6 +295,16 @@ alternative London, dark atmosphere, ornate building details, foggy streets, gas
         Returns:
             Dictionary with information about the processed texture
         """
+        # Check if ComfyUI module is available
+        if not self.style_transformer:
+            logger.error("ComfyUI style transformer not available. Cannot transform images.")
+            return {
+                "success": False,
+                "error": "ComfyUI style transformer not available",
+                "building_type": building_type,
+                "era": era
+            }
+            
         # If no reference image is provided, use a default one
         if not reference_image_path or not os.path.exists(reference_image_path):
             # Use a default facade image
@@ -341,7 +372,65 @@ alternative London, dark atmosphere, ornate building details, foggy streets, gas
                 "era": era,
                 "success": False
             }
+
+# Function-level API for direct import
+def transform_and_upload_image(image_path: str, **kwargs) -> Dict:
+    """Module-level function to transform and upload a single image.
     
+    This function creates an ArcanumStorageIntegration instance and delegates to its
+    transform_and_upload_image method.
+    
+    Args:
+        image_path: Path to the input image
+        **kwargs: Additional arguments to pass to ArcanumStorageIntegration.transform_and_upload_image
+        
+    Returns:
+        Dictionary with information about the processed tile
+    """
+    # Create storage integration instance
+    integration = ArcanumStorageIntegration()
+    
+    # Delegate to instance method
+    return integration.transform_and_upload_image(image_path, **kwargs)
+
+def transform_and_upload_directory(input_dir: str, **kwargs) -> List[Dict]:
+    """Module-level function to transform and upload all images in a directory.
+    
+    This function creates an ArcanumStorageIntegration instance and delegates to its
+    transform_and_upload_directory method.
+    
+    Args:
+        input_dir: Directory containing input images
+        **kwargs: Additional arguments to pass to ArcanumStorageIntegration.transform_and_upload_directory
+        
+    Returns:
+        List of dictionaries with information about processed tiles
+    """
+    # Create storage integration instance
+    integration = ArcanumStorageIntegration()
+    
+    # Delegate to instance method
+    return integration.transform_and_upload_directory(input_dir, **kwargs)
+
+def transform_satellite_images(satellite_dir: str, **kwargs) -> List[Dict]:
+    """Module-level function to transform satellite imagery to Arcanum style.
+    
+    This function creates an ArcanumStorageIntegration instance and delegates to its
+    transform_satellite_images method.
+    
+    Args:
+        satellite_dir: Directory containing satellite images
+        **kwargs: Additional arguments to pass to ArcanumStorageIntegration.transform_satellite_images
+        
+    Returns:
+        List of dictionaries with information about processed tiles
+    """
+    # Create storage integration instance
+    integration = ArcanumStorageIntegration()
+    
+    # Delegate to instance method
+    return integration.transform_satellite_images(satellite_dir, **kwargs)
+
 def main():
     """Main function for testing the module."""
     import argparse

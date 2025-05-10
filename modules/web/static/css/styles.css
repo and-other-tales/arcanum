@@ -1,0 +1,273 @@
+/* 
+ * Arcanum City Generator - Web Interface Styles
+ */
+
+/* Main Layout */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+    color: #333;
+}
+
+.navbar-brand {
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+/* Sidebar */
+.sidebar {
+    background-color: #343a40;
+    color: #fff;
+    min-height: calc(100vh - 56px);
+    padding: 15px 0;
+}
+
+.sidebar .nav-link {
+    color: rgba(255, 255, 255, 0.75);
+    padding: 10px 15px;
+    border-radius: 0;
+}
+
+.sidebar .nav-link:hover {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar .nav-link.active {
+    color: #fff;
+    background-color: #495057;
+}
+
+/* Map */
+#map {
+    height: 600px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.map-controls {
+    background-color: #fff;
+    padding: 15px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    margin-bottom: 20px;
+}
+
+/* Cards */
+.card {
+    margin-bottom: 20px;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.card-header {
+    background-color: #343a40;
+    color: #fff;
+    font-weight: 600;
+}
+
+/* Job cards */
+.job-card {
+    transition: transform 0.3s ease;
+}
+
+.job-card:hover {
+    transform: translateY(-3px);
+}
+
+.job-card .card-footer {
+    background-color: rgba(0, 0, 0, 0.03);
+    border-top: none;
+}
+
+/* Style editor */
+.style-preview {
+    max-width: 100%;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 5px;
+    margin-bottom: 10px;
+}
+
+.style-card {
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.style-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.style-card.selected {
+    border: 2px solid #007bff;
+}
+
+/* Texture visualization */
+.texture-preview {
+    max-width: 100%;
+    height: 150px;
+    object-fit: cover;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.texture-preview:hover {
+    opacity: 0.9;
+}
+
+.texture-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.texture-item {
+    background-color: #fff;
+    border-radius: 5px;
+    padding: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    transition: transform 0.2s ease;
+}
+
+.texture-item:hover {
+    transform: translateY(-3px);
+}
+
+.texture-item h6 {
+    margin-top: 10px;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Loading and progress */
+.progress {
+    height: 10px;
+    margin-bottom: 10px;
+}
+
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    flex-direction: column;
+}
+
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Tooltips */
+.tooltip-inner {
+    max-width: 300px;
+}
+
+/* Atlas visualization */
+.atlas-container {
+    position: relative;
+    max-width: 100%;
+    overflow: auto;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    margin-bottom: 20px;
+}
+
+.atlas-image {
+    max-width: 100%;
+    display: block;
+}
+
+.atlas-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.atlas-building-highlight {
+    position: absolute;
+    border: 2px solid rgba(255, 255, 0, 0.8);
+    background-color: rgba(255, 255, 0, 0.2);
+    pointer-events: all;
+    cursor: pointer;
+}
+
+/* Texture mapping visualizer */
+.texture-mapping-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.model-preview-container {
+    width: 100%;
+    height: 400px;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+/* Building texture editor */
+.texture-editor-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.texture-editor-sidebar {
+    flex: 0 0 300px;
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.texture-editor-main {
+    flex: 1;
+    min-width: 300px;
+}
+
+.texture-layer {
+    padding: 10px;
+    background-color: #fff;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    cursor: move;
+    border-left: 3px solid #007bff;
+}
+
+.texture-layer.active {
+    background-color: #f0f8ff;
+    border-left-color: #0056b3;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #map {
+        height: 400px;
+    }
+    
+    .texture-editor-container {
+        flex-direction: column;
+    }
+    
+    .texture-editor-sidebar {
+        flex: 0 0 100%;
+    }
+}

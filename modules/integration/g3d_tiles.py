@@ -16,14 +16,6 @@ from pathlib import Path
 import time
 from dotenv import load_dotenv
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# Import our custom modules
-from integration_tools.google_3d_tiles_integration import Google3DTilesIntegration
-from storage_manager import ArcanumStorageManager
-from integration_tools.storage_integration import ArcanumStorageIntegration
-
 # Initialize logger
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +27,118 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Import our custom modules
+try:
+    # Import from modules structure
+    from modules.integration.google_3d_tiles_integration import Google3DTilesIntegration
+    from modules.storage.storage import ArcanumStorageManager
+    from modules.storage.storage_integration import ArcanumStorageIntegration
+    MODULES_AVAILABLE = True
+except ImportError as e:
+    logger.error(f"Failed to import modules: {str(e)}")
+    MODULES_AVAILABLE = False
+
+# Module-level functions for fetching 3D tiles
+def fetch_tiles(bounds: Dict, output_dir: str, max_depth: int = 3, region: str = None,
+               api_key: str = None) -> Dict:
+    """
+    Fetch 3D tiles for the specified bounds and save to output directory.
+
+    Args:
+        bounds: Dictionary with lat/lon bounds (e.g. {"south": 37.7, "west": -122.5, "north": 37.8, "east": -122.4})
+        output_dir: Directory to save downloaded tiles
+        max_depth: Maximum recursion depth for tile fetching
+        region: Optional region name (default global tileset)
+        api_key: Google Maps API key with 3D Tiles access (from env var if None)
+
+    Returns:
+        Dictionary with download results including success status
+    """
+    # Create Google3DTilesIntegration instance
+    try:
+        integration = Google3DTilesIntegration(api_key=api_key)
+
+        # Create output directory if needed
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Fetch the tileset.json with API key authentication
+        tileset_json = integration.fetch_tileset_json(region)
+
+        # Generate a session token for this request session
+        session_token = f"arcanum_session_{int(time.time())}"
+
+        # If the tileset has session parameter requirements, add it
+        if "asset" in tileset_json and "extras" in tileset_json["asset"]:
+            # Add session information if not present
+            if "session" not in tileset_json["asset"]["extras"]:
+                tileset_json["asset"]["extras"]["session"] = session_token
+
+        # Fetch all tiles recursively with authentication
+        downloaded_paths = integration.fetch_tiles_recursive(
+            tileset_json,
+            max_depth=max_depth,
+            output_dir=output_dir
+        )
+
+        # Save the tileset.json to the output directory
+        tileset_path = os.path.join(output_dir, "tileset.json")
+        with open(tileset_path, "w") as f:
+            json.dump(tileset_json, f, indent=2)
+
+        # Add to downloaded paths
+        downloaded_paths.append(tileset_path)
+
+        return {
+            "success": True,
+            "downloaded_tiles": len(downloaded_paths),
+            "paths": downloaded_paths,
+            "tileset_path": tileset_path
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching 3D tiles: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+def fetch_city_tiles(city_name: str, output_dir: str, max_depth: int = 4, region: str = None,
+                  api_key: str = None) -> Dict:
+    """
+    Fetch 3D tiles for an entire city and save to output directory.
+
+    Args:
+        city_name: Name of the city (e.g., "London", "New York")
+        output_dir: Directory to save downloaded tiles
+        max_depth: Maximum recursion depth for tile fetching
+        region: Optional region name (default global tileset)
+        api_key: Google Maps API key with 3D Tiles access (from env var if None)
+
+    Returns:
+        Dictionary with download results including success status
+    """
+    try:
+        # Create Google3DTilesIntegration instance
+        integration = Google3DTilesIntegration(api_key=api_key)
+
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Fetch the city tiles
+        result = integration.fetch_city_tiles(city_name, output_dir, max_depth, region)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error fetching city 3D tiles: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -319,13 +423,16 @@ def main():
     # Convert to Arcanum style if requested
     if args.convert:
         try:
-            # Initialize storage integration
-            from integration_tools.comfyui_integration import ComfyUIStyleTransformer
-            
+            # Initialize style transformer
+            if MODULES_AVAILABLE:
+                from modules.comfyui.automation import ComfyUIStyleTransformer
+            else:
+                from integration_tools.comfyui_integration import ComfyUIStyleTransformer
+
             logger.info("Initializing ComfyUI style transformer...")
-            
+
             comfyui_path = os.environ.get("COMFYUI_PATH", "./ComfyUI")
-            
+
             # Initialize the style transformer
             style_transformer = ComfyUIStyleTransformer(
                 comfyui_path=comfyui_path

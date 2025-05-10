@@ -79,10 +79,12 @@ except ImportError as e:
     MODULES_AVAILABLE = False
 
 try:
-    from integration_tools import google_3d_tiles_integration
-    from integration_tools import storage_integration
-    from integration_tools import street_view_integration
-    from integration_tools import texture_projection
+    # Import from the modules structure
+    from modules.integration import fetch_3d_tiles, fetch_city_tiles, fetch_street_view
+    from modules.integration import fetch_street_view_along_roads, project_textures
+    from modules.storage import upload_image, upload_dir, upload
+    from modules.storage.storage import ArcanumStorageManager
+    from modules.storage import ArcanumStorageIntegration
 
     # Track which integrations are available
     INTEGRATION_TOOLS = {
@@ -439,12 +441,12 @@ def process_entire_run(config: Dict[str, Any]) -> None:
     clear_screen()
     print_header()
     print("\n🔄 Running complete Arcanum pipeline...\n")
-    
+
     if not MODULES_AVAILABLE:
         print("❌ Required modules not available. Please check your installation.")
         input("\nPress Enter to return to the main menu...")
         return
-    
+
     # Step 1: Download OSM data
     print("Step 1: Downloading OpenStreetMap data...")
     osm_result = run_with_spinner(
@@ -454,27 +456,215 @@ def process_entire_run(config: Dict[str, Any]) -> None:
         output_dir=config["output_directory"],
         region="london"  # Default to London, can be changed in config
     )
-    
+
     if not osm_result or not osm_result.get("success", False):
         print("❌ Failed to download OSM data. Cannot continue.")
         input("\nPress Enter to return to the main menu...")
         return
-    
+
     # Step 2: Download Tile Data & Imagery
     print("\nStep 2: Downloading 3D Tiles and imagery...")
     if INTEGRATION_AVAILABLE:
-        tiles_result = run_with_spinner(
-            google_3d_tiles_integration.fetch_tiles,
-            "Downloading 3D tiles and imagery",
-            config["bounds"],
-            os.path.join(config["output_directory"], "raw_data")
-        )
+        # Ask which type of 3D tiles to fetch
+        print("Select 3D tile download mode:")
+        print("1. Download tiles for a specific area (using bounds)")
+        print("2. Download tiles for an entire city")
+
+        try:
+            choice = input("\nEnter option number [1]: ")
+            choice = choice.strip() or "1"  # Default to 1 if empty
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if choice == "1":
+            # Fetch 3D tiles for specific bounds
+            tiles_result = run_with_spinner(
+                google_3d_tiles_integration.fetch_tiles,
+                "Downloading 3D tiles for specific area",
+                config["bounds"],
+                os.path.join(config["output_directory"], "raw_data", "tiles"),
+                api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
+            )
+
+        elif choice == "2":
+            # Ask for city name
+            city_name = input("\nEnter city name (e.g., London, New York): ")
+            if not city_name:
+                print("❌ No city name provided. Using bounds instead.")
+                # Fall back to using bounds
+                tiles_result = run_with_spinner(
+                    google_3d_tiles_integration.fetch_tiles,
+                    "Downloading 3D tiles for specific area",
+                    config["bounds"],
+                    os.path.join(config["output_directory"], "raw_data", "tiles"),
+                    api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
+                )
+            else:
+                # Fetch city tiles
+                tiles_result = run_with_spinner(
+                    google_3d_tiles_integration.fetch_city_tiles,
+                    f"Downloading 3D tiles for {city_name}",
+                    city_name,
+                    os.path.join(config["output_directory"], "raw_data", "city_tiles", city_name.lower().replace(" ", "_")),
+                    max_depth=4,
+                    api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
+                )
+        else:
+            print("⚠️ Invalid option. Using bounds instead.")
+            # Fall back to using bounds
+            tiles_result = run_with_spinner(
+                google_3d_tiles_integration.fetch_tiles,
+                "Downloading 3D tiles for specific area",
+                config["bounds"],
+                os.path.join(config["output_directory"], "raw_data", "tiles"),
+                api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
+            )
+
+        if not tiles_result or not tiles_result.get("success", False):
+            print(f"❌ Failed to download 3D tiles: {tiles_result.get('error', 'Unknown error')}")
+        else:
+            print(f"✅ 3D tiles downloaded successfully")
     else:
         print("⚠️ Integration tools not available. Skipping 3D tiles download.")
         tiles_result = {"success": False}
-    
-    # Step 3: Run transformation
-    print("\nStep 3: Running image transformation...")
+
+    # Step 3: Download Street View imagery
+    print("\nStep 3: Downloading Street View imagery...")
+    if INTEGRATION_AVAILABLE:
+        # Ask which type of Street View imagery to fetch
+        print("Select Street View download mode:")
+        print("1. Download Street View for a specific point")
+        print("2. Download Street View along road network")
+
+        try:
+            sv_choice = input("\nEnter option number [1]: ")
+            sv_choice = sv_choice.strip() or "1"  # Default to 1 if empty
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if sv_choice == "1":
+            # Download Street View for a specific point
+            try:
+                from integration_tools import street_view_integration
+                center = config["center_point"]
+                sv_result = run_with_spinner(
+                    street_view_integration.fetch_street_view,
+                    "Downloading Street View images",
+                    center[0], center[1],
+                    os.path.join(config["output_directory"], "raw_data", "street_view"),
+                    api_key=config.get("api_keys", {}).get("google_maps", None)
+                )
+
+                if not sv_result or not sv_result.get("success", False):
+                    print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
+                else:
+                    print(f"✅ Street View imagery downloaded successfully")
+            except ImportError as e:
+                print(f"❌ Failed to import Street View integration module: {str(e)}")
+
+        elif sv_choice == "2":
+            # Download Street View along road network
+            try:
+                from modules.integration import road_network_integration
+
+                # Use the OSM file from step 1 if available
+                osm_path = None
+                if osm_result and osm_result.get("success", False):
+                    roads_path = osm_result.get("roads_path")
+                    if roads_path and os.path.exists(roads_path):
+                        osm_path = roads_path
+
+                if not osm_path:
+                    # Ask for OSM file path
+                    osm_path = input("\nEnter path to OSM GeoPackage file with roads layer: ")
+                    if not os.path.exists(osm_path):
+                        print(f"❌ File not found: {osm_path}")
+                        print("Skipping Street View download")
+                        sv_result = {"success": False}
+                    else:
+                        # Create road network integration
+                        rn_integration = road_network_integration.RoadNetworkIntegration(
+                            config["output_directory"],
+                            api_key=config.get("api_keys", {}).get("google_maps", None)
+                        )
+
+                        # Load road network
+                        load_result = run_with_spinner(
+                            rn_integration.load_road_network,
+                            "Loading road network from OSM file",
+                            osm_path
+                        )
+
+                        if not load_result:
+                            print(f"❌ Failed to load road network from {osm_path}")
+                            sv_result = {"success": False}
+                        else:
+                            # Fetch Street View along roads
+                            sv_result = run_with_spinner(
+                                rn_integration.fetch_street_view_along_roads,
+                                "Downloading Street View along roads",
+                                sampling_interval=50.0,
+                                max_points=None,
+                                panorama=True,
+                                max_search_radius=1000,
+                                max_workers=4
+                            )
+
+                            if not sv_result or not sv_result.get("success", False):
+                                print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
+                            else:
+                                print(f"✅ Successfully processed {sv_result.get('points_processed', 0)} points")
+                                print(f"✅ Found imagery at {sv_result.get('points_with_imagery', 0)} locations")
+                                print(f"✅ Downloaded {sv_result.get('images_downloaded', 0)} Street View images")
+                else:
+                    # Create road network integration
+                    rn_integration = road_network_integration.RoadNetworkIntegration(
+                        config["output_directory"],
+                        api_key=config.get("api_keys", {}).get("google_maps", None)
+                    )
+
+                    # Load road network
+                    load_result = run_with_spinner(
+                        rn_integration.load_road_network,
+                        "Loading road network from OSM file",
+                        osm_path
+                    )
+
+                    if not load_result:
+                        print(f"❌ Failed to load road network from {osm_path}")
+                        sv_result = {"success": False}
+                    else:
+                        # Fetch Street View along roads
+                        sv_result = run_with_spinner(
+                            rn_integration.fetch_street_view_along_roads,
+                            "Downloading Street View along roads",
+                            sampling_interval=50.0,
+                            max_points=None,
+                            panorama=True,
+                            max_search_radius=1000,
+                            max_workers=4
+                        )
+
+                        if not sv_result or not sv_result.get("success", False):
+                            print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
+                        else:
+                            print(f"✅ Successfully processed {sv_result.get('points_processed', 0)} points")
+                            print(f"✅ Found imagery at {sv_result.get('points_with_imagery', 0)} locations")
+                            print(f"✅ Downloaded {sv_result.get('images_downloaded', 0)} Street View images")
+
+            except ImportError as e:
+                print(f"❌ Failed to import road network integration module: {str(e)}")
+                print("Make sure road_network_integration module is available")
+                sv_result = {"success": False}
+        else:
+            print("⚠️ Invalid option. Skipping Street View download.")
+            sv_result = {"success": False}
+    else:
+        print("⚠️ Integration tools not available. Skipping Street View download.")
+        sv_result = {"success": False}
+
+    # Step 4: Run transformation
+    print("\nStep 4: Running image transformation...")
     # Find images in the raw_data directory
     imagery_dir = os.path.join(config["output_directory"], "raw_data", "satellite")
     transform_result = {"success": False}
@@ -491,62 +681,76 @@ def process_entire_run(config: Dict[str, Any]) -> None:
     else:
         print("⚠️ No imagery found or module not available. Skipping transformation.")
 
-    # Step 4: Project Street View textures
-    print("\nStep 4: Projecting Street View textures...")
+    # Step 5: Project Street View textures
+    print("\nStep 5: Projecting Street View textures...")
     models_dir = os.path.join(config["output_directory"], "3d_models", "buildings")
     sv_dir = os.path.join(config["output_directory"], "raw_data", "street_view")
 
-    if INTEGRATION_TOOLS.get("texture_projection", False) and os.path.exists(models_dir) and os.path.exists(sv_dir):
-        # Create texture projector
-        projector = texture_projection.TextureProjector(
-            output_dir=os.path.join(config["output_directory"], "processed_data", "building_textures"),
-            parallel_processing=True
-        )
+    if INTEGRATION_TOOLS.get("texture_projection", False) and os.path.exists(models_dir):
+        # Check if Street View dir exists from traditional method
+        if os.path.exists(sv_dir):
+            street_view_source_dir = sv_dir
+        else:
+            # Check if Street View dir exists from road network method
+            sv_road_dir = sv_result.get("output_dir") if sv_result and sv_result.get("success", False) else None
 
-        # Collect building metadata
-        buildings_data = {}
+            if sv_road_dir and os.path.exists(sv_road_dir):
+                street_view_source_dir = sv_road_dir
+            else:
+                print("⚠️ No Street View imagery found. Skipping texture projection.")
+                street_view_source_dir = None
 
-        # Try to load from a metadata file first
-        metadata_path = os.path.join(config["output_directory"], "processed_data", "buildings", "buildings_metadata.json")
-        if os.path.exists(metadata_path):
-            try:
-                with open(metadata_path, 'r') as f:
-                    buildings_data = json.load(f)
-                print(f"Loaded metadata for {len(buildings_data)} buildings")
-            except Exception as e:
-                print(f"Error loading building metadata: {str(e)}")
-
-        # If no metadata, scan for mesh files
-        if not buildings_data:
-            for file in os.listdir(models_dir):
-                if file.lower().endswith(".obj"):
-                    building_id = file.split('.')[0]
-                    buildings_data[building_id] = {
-                        "id": building_id,
-                        "mesh_path": os.path.join(models_dir, file)
-                    }
-
-        if buildings_data:
-            # Process buildings
-            projection_result = run_with_spinner(
-                projector.process_building_batch,
-                "Projecting textures onto buildings",
-                buildings_data,
-                sv_dir,
-                os.path.join(config["output_directory"], "processed_data", "building_textures")
+        if street_view_source_dir:
+            # Create texture projector
+            projector = texture_projection.TextureProjector(
+                output_dir=os.path.join(config["output_directory"], "processed_data", "building_textures"),
+                parallel_processing=True
             )
 
-            if projection_result and projection_result.get("success", False):
-                print(f"Successfully processed {projection_result.get('success_count')} of {projection_result.get('total_buildings')} buildings")
-            else:
-                print(f"⚠️ Failed to project textures: {projection_result.get('error', 'Unknown error')}")
-        else:
-            print("⚠️ No buildings found for texture projection. Skipping.")
-    else:
-        print("⚠️ Missing modules, building models, or Street View images. Skipping texture projection.")
+            # Collect building metadata
+            buildings_data = {}
 
-    # Step 5: Transfer to server
-    print("\nStep 5: Transferring to server...")
+            # Try to load from a metadata file first
+            metadata_path = os.path.join(config["output_directory"], "processed_data", "buildings", "buildings_metadata.json")
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'r') as f:
+                        buildings_data = json.load(f)
+                    print(f"Loaded metadata for {len(buildings_data)} buildings")
+                except Exception as e:
+                    print(f"Error loading building metadata: {str(e)}")
+
+            # If no metadata, scan for mesh files
+            if not buildings_data:
+                for file in os.listdir(models_dir):
+                    if file.lower().endswith(".obj"):
+                        building_id = file.split('.')[0]
+                        buildings_data[building_id] = {
+                            "id": building_id,
+                            "mesh_path": os.path.join(models_dir, file)
+                        }
+
+            if buildings_data:
+                # Process buildings
+                projection_result = run_with_spinner(
+                    projector.process_building_batch,
+                    "Projecting textures onto buildings",
+                    buildings_data,
+                    street_view_source_dir,
+                    os.path.join(config["output_directory"], "processed_data", "building_textures")
+                )
+
+                if projection_result and projection_result.get("success", False):
+                    print(f"Successfully processed {projection_result.get('success_count')} of {projection_result.get('total_buildings')} buildings")
+                else:
+                    print(f"⚠️ Failed to project textures: {projection_result.get('error', 'Unknown error')}")
+            else:
+                print("⚠️ No buildings found for texture projection. Skipping.")
+    else:
+        print("⚠️ Missing modules or building models. Skipping texture projection.")
+
+    # Step 6: Transfer to server
+    print("\nStep 6: Transferring to server...")
     if INTEGRATION_AVAILABLE and config.get("server_url") and config.get("credentials_path"):
         upload_result = run_with_spinner(
             storage_integration.upload_directory,
@@ -557,7 +761,7 @@ def process_entire_run(config: Dict[str, Any]) -> None:
         )
     else:
         print("⚠️ Server upload configuration missing or integration tools not available. Skipping upload.")
-    
+
     print("\n✅ Arcanum processing completed!")
     print(f"\nOutput directory: {config['output_directory']}")
     input("\nPress Enter to return to the main menu...")
@@ -597,51 +801,193 @@ def download_tiles(config: Dict[str, Any]) -> None:
     clear_screen()
     print_header()
     print("\n🔄 Downloading 3D Tiles and Imagery...\n")
-    
+
     if not INTEGRATION_AVAILABLE:
         print("❌ Required integration tools not available. Please check your installation.")
         input("\nPress Enter to return to the main menu...")
         return
-    
+
     # Create directories
     raw_data_dir = os.path.join(config["output_directory"], "raw_data")
     os.makedirs(raw_data_dir, exist_ok=True)
-    
-    # Fetch 3D tiles
-    tiles_result = run_with_spinner(
-        google_3d_tiles_integration.fetch_tiles,
-        "Downloading 3D tiles",
-        config["bounds"],
-        os.path.join(raw_data_dir, "tiles"),
-        api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
-    )
-    
-    if not tiles_result or not tiles_result.get("success", False):
-        print(f"❌ Failed to download 3D tiles: {tiles_result.get('error', 'Unknown error')}")
-    else:
-        print(f"✅ 3D tiles downloaded successfully")
-    
-    # Fetch Street View imagery if available
-    print("\nDownloading Street View imagery...")
-    # Import the street view integration module
+
+    # Ask which type of 3D tiles to fetch
+    print("Select 3D tile download mode:")
+    print("1. Download tiles for a specific area (using bounds)")
+    print("2. Download tiles for an entire city")
+
     try:
-        from integration_tools import street_view_integration
-        center = config["center_point"]
-        sv_result = run_with_spinner(
-            street_view_integration.fetch_street_view,
-            "Downloading Street View images",
-            center[0], center[1],
-            os.path.join(raw_data_dir, "street_view"),
-            api_key=config.get("api_keys", {}).get("google_maps", None)
+        choice = input("\nEnter option number: ")
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    if choice == "1":
+        # Fetch 3D tiles for specific bounds
+        tiles_result = run_with_spinner(
+            google_3d_tiles_integration.fetch_tiles,
+            "Downloading 3D tiles for specific area",
+            config["bounds"],
+            os.path.join(raw_data_dir, "tiles"),
+            api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
         )
 
-        if not sv_result or not sv_result.get("success", False):
-            print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
+        if not tiles_result or not tiles_result.get("success", False):
+            print(f"❌ Failed to download 3D tiles: {tiles_result.get('error', 'Unknown error')}")
         else:
-            print(f"✅ Street View imagery downloaded successfully")
-    except ImportError as e:
-        print(f"❌ Failed to import Street View integration module: {str(e)}")
-    
+            print(f"✅ 3D tiles downloaded successfully")
+
+    elif choice == "2":
+        # Fetch 3D tiles for an entire city
+        # Ask the user which city to download
+        city_options = []
+        try:
+            from integration_tools.spatial_bounds import city_polygon
+            # Extract city names from the predefined list
+            for name in city_polygon.__globals__["city_bounds"].keys():
+                city_options.append(name.title())
+
+            print("\nAvailable predefined cities:")
+            for i, city in enumerate(sorted(city_options), 1):
+                print(f"{i}. {city}")
+
+            city_choice = input("\nEnter city number or name: ")
+
+            # Determine selected city
+            selected_city = None
+            if city_choice.isdigit() and 1 <= int(city_choice) <= len(city_options):
+                selected_city = sorted(city_options)[int(city_choice) - 1]
+            else:
+                # Check if input matches a city name
+                for city in city_options:
+                    if city_choice.lower() == city.lower():
+                        selected_city = city
+                        break
+
+            if not selected_city:
+                print(f"❌ Invalid city selection: {city_choice}")
+                input("\nPress Enter to return to the main menu...")
+                return
+
+            # Fetch city tiles
+            tiles_result = run_with_spinner(
+                google_3d_tiles_integration.fetch_city_tiles,
+                f"Downloading 3D tiles for {selected_city}",
+                selected_city,
+                os.path.join(raw_data_dir, "city_tiles", selected_city.lower().replace(" ", "_")),
+                max_depth=4,
+                api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
+            )
+
+            if not tiles_result or not tiles_result.get("success", False):
+                print(f"❌ Failed to download 3D tiles for {selected_city}: {tiles_result.get('error', 'Unknown error')}")
+            else:
+                downloaded_tiles = tiles_result.get("downloaded_tiles", 0)
+                grid_cells = tiles_result.get("grid_cells", 0)
+
+                print(f"✅ Successfully downloaded {downloaded_tiles} tiles for {selected_city}")
+                print(f"The city was divided into {grid_cells} grid cells for processing")
+
+        except ImportError as e:
+            print(f"❌ Failed to access city definitions: {str(e)}")
+            print("Make sure spatial_bounds module is available")
+            input("\nPress Enter to return to the main menu...")
+            return
+
+    else:
+        print("Invalid option. Returning to main menu.")
+        input("\nPress Enter to continue...")
+        return
+
+    # Ask which type of Street View imagery to fetch
+    print("\nSelect Street View download mode:")
+    print("1. Download Street View for a specific point")
+    print("2. Download Street View along road network")
+
+    try:
+        sv_choice = input("\nEnter option number (or press Enter to skip): ")
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    if sv_choice == "1":
+        # Download Street View for a specific point
+        try:
+            from integration_tools import street_view_integration
+            center = config["center_point"]
+            sv_result = run_with_spinner(
+                street_view_integration.fetch_street_view,
+                "Downloading Street View images",
+                center[0], center[1],
+                os.path.join(raw_data_dir, "street_view"),
+                api_key=config.get("api_keys", {}).get("google_maps", None)
+            )
+
+            if not sv_result or not sv_result.get("success", False):
+                print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
+            else:
+                print(f"✅ Street View imagery downloaded successfully")
+        except ImportError as e:
+            print(f"❌ Failed to import Street View integration module: {str(e)}")
+
+    elif sv_choice == "2":
+        # Download Street View along road network
+        try:
+            from modules.integration import road_network_integration
+
+            # Ask for OSM file path
+            osm_path = input("\nEnter path to OSM GeoPackage file with roads layer: ")
+            if not os.path.exists(osm_path):
+                print(f"❌ File not found: {osm_path}")
+                input("\nPress Enter to return to the main menu...")
+                return
+
+            # Ask for sampling interval
+            interval = input("Enter sampling interval in meters [50]: ")
+            interval = float(interval) if interval.strip() else 50.0
+
+            # Ask for maximum points
+            max_points = input("Enter maximum number of points to process (or press Enter for all): ")
+            max_points = int(max_points) if max_points.strip() else None
+
+            # Create road network integration
+            rn_integration = road_network_integration.RoadNetworkIntegration(
+                config["output_directory"],
+                api_key=config.get("api_keys", {}).get("google_maps", None)
+            )
+
+            # Load road network
+            load_result = run_with_spinner(
+                rn_integration.load_road_network,
+                "Loading road network from OSM file",
+                osm_path
+            )
+
+            if not load_result:
+                print(f"❌ Failed to load road network from {osm_path}")
+                input("\nPress Enter to return to the main menu...")
+                return
+
+            # Fetch Street View along roads
+            sv_result = run_with_spinner(
+                rn_integration.fetch_street_view_along_roads,
+                "Downloading Street View along roads",
+                sampling_interval=interval,
+                max_points=max_points,
+                panorama=True,
+                max_search_radius=1000,
+                max_workers=4
+            )
+
+            if not sv_result or not sv_result.get("success", False):
+                print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
+            else:
+                print(f"✅ Successfully processed {sv_result.get('points_processed', 0)} points")
+                print(f"✅ Found imagery at {sv_result.get('points_with_imagery', 0)} locations")
+                print(f"✅ Downloaded {sv_result.get('images_downloaded', 0)} Street View images")
+
+        except ImportError as e:
+            print(f"❌ Failed to import road network integration module: {str(e)}")
+            print("Make sure road_network_integration module is available")
+
     input("\nPress Enter to return to the main menu...")
 
 def run_transformation(config: Dict[str, Any]) -> None:

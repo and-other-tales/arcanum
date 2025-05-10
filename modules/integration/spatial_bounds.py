@@ -2,20 +2,9 @@
 """
 Spatial Bounds Utilities
 -----------------------
-This module provides utilities for working with spatial bounds and ensuring complete
+This module provides utilities for working with spatial bounds and ensuring complete 
 coverage for geo-related operations like 3D tiles downloads and Street View imagery.
-
-DEPRECATED: This module has been moved to modules/integration/spatial_bounds.py
-Please update your imports to use the new module path.
 """
-
-import warnings
-warnings.warn(
-    "The integration_tools.spatial_bounds module is deprecated. "
-    "Please use modules.integration.spatial_bounds instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
 
 import os
 import sys
@@ -25,7 +14,18 @@ import math
 from typing import Dict, List, Tuple, Optional, Set, Any
 import numpy as np
 from shapely.geometry import Polygon, Point, LineString, box, mapping, shape
-from shapely.ops import cascaded_union, transform
+try:
+    # For older shapely versions
+    from shapely.ops import cascaded_union, transform
+except ImportError:
+    # For newer shapely versions
+    from shapely.ops import transform
+    from functools import reduce
+    from shapely.ops import unary_union
+
+    def cascaded_union(polygons):
+        """Replacement for cascaded_union using unary_union."""
+        return unary_union(polygons)
 import pyproj
 from functools import partial
 

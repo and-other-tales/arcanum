@@ -15,11 +15,8 @@ ARCANUM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Print banner
 echo -e "${BLUE}"
-echo "    _                                     "
-echo "   / \   _ __ ___ __ _ _ __  _   _ _ __ ___  "
-echo "  / _ \ | '__/ __/ _' | '_ \| | | | '_ ' _ \ "
-echo " / ___ \| | | (_| (_| | | | | |_| | | | | | |"
-echo "/_/   \_\_|  \___\__,_|_| |_|\__,_|_| |_| |_|"
+echo "▒▄▀▄▒█▀▄░▄▀▀▒▄▀▄░█▄░█░█▒█░█▄▒▄█"
+echo "░█▀█░█▀▄░▀▄▄░█▀█░█▒▀█░▀▄█░█▒▀▒█"
 echo "          Arcanum Map Builder [Beta]"
 echo -e "${NC}"
 echo -e "${YELLOW}Arcanum Setup and Startup Script${NC}"
