@@ -189,7 +189,7 @@ def download_osm_for_cell(cell_bounds, output_dir, tags=None):
         logger.error(f"Error downloading OSM data for cell: {str(e)}")
         return {"success": False, "error": str(e)}
 
-def download_osm_grid(bounds, output_dir, cell_size_meters=500, tags=None, max_concurrent=None):
+def download_osm_grid(bounds, output_dir, cell_size_meters=100, tags=None, max_concurrent=None):
     """
     Download OSM data for an area by dividing it into a grid.
     

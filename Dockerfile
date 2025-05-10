@@ -83,6 +83,9 @@ echo "Model download complete."' > /app/download_models.sh && chmod +x /app/down
 # Copy application code
 COPY . /app/
 
+# Install osmium-tool for Geofabrik data processing
+RUN apt-get update && apt-get install -y osmium-tool && apt-get clean
+
 # Create entrypoint script
 RUN echo '#!/bin/bash\n\
 # Download models if needed\n\
@@ -93,11 +96,14 @@ if [ -f ".env" ]; then\n\
   export $(grep -v "^#" .env | xargs)\n\
 fi\n\
 \n\
-# Run the generator script with arguments\n\
-python3 generator.py "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Install additional libraries for OSM processing\n\
+pip install -U osmnx geopandas requests\n\
+\n\
+# Run arcanum.py with arguments\n\
+python3 arcanum.py start' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set the entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command (can be overridden)
-CMD ["--output", "/app/output/arcanum_3d_output"]
+CMD []

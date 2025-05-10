@@ -122,16 +122,17 @@ def setup_directory_structure(base_dir: str = None) -> str:
     logger.info("Directory structure set up complete")
     return base_dir
 
-def download_osm_data(bounds: Dict[str, float], output_dir: str, grid_size: int = None, coordinate_system: str = "EPSG:4326") -> Dict[str, Any]:
+def download_osm_data(bounds: Dict[str, float], output_dir: str, grid_size: int = None, coordinate_system: str = "EPSG:4326", region: str = "london") -> Dict[str, Any]:
     """
-    Download OpenStreetMap data using the appropriate method.
-    
+    Download OpenStreetMap data using the Geofabrik downloader or fallback methods.
+
     Args:
         bounds: Dictionary with north, south, east, west boundaries
         output_dir: Directory to save output files
-        grid_size: Size of grid cells in meters (uses grid-based approach if provided)
+        grid_size: Size of grid cells in meters (uses grid-based approach if provided as fallback)
         coordinate_system: Coordinate system of the bounds
-        
+        region: Region name to download from Geofabrik (default: "london")
+
     Returns:
         Dictionary with status information
     """
@@ -141,7 +142,27 @@ def download_osm_data(bounds: Dict[str, float], output_dir: str, grid_size: int 
             "success": False,
             "error": "Arcanum modules not available"
         }
-    
+
+    # Try to use Geofabrik downloader first (much more reliable)
+    logger.info(f"Using Geofabrik OSM downloader for region: {region}")
+    try:
+        result = osm.geofabrik_bbox_download(
+            bounds=bounds,
+            output_dir=output_dir,
+            region=region
+        )
+
+        if result.get("success", False):
+            logger.info(f"Successfully downloaded OSM data from Geofabrik for {region}")
+            return result
+        else:
+            logger.warning(f"Geofabrik download failed: {result.get('error', 'Unknown error')}")
+            logger.warning("Falling back to standard OSM download methods")
+    except Exception as e:
+        logger.warning(f"Geofabrik download error: {str(e)}")
+        logger.warning("Falling back to standard OSM download methods")
+
+    # Fallback to original methods
     # Determine which approach to use based on grid_size
     if grid_size is not None and grid_size > 0:
         # Use grid-based approach for larger areas
@@ -151,7 +172,7 @@ def download_osm_data(bounds: Dict[str, float], output_dir: str, grid_size: int 
             output_dir=output_dir,
             cell_size_meters=grid_size
         )
-        
+
         # Merge grid data
         if result.get("success_count", 0) > 0:
             merge_result = osm.merge_grid_data(output_dir)
@@ -165,7 +186,7 @@ def download_osm_data(bounds: Dict[str, float], output_dir: str, grid_size: int 
                 }
             else:
                 logger.warning(f"Grid data merge failed: {merge_result.get('error', 'Unknown error')}")
-        
+
         return {
             "success": result.get("success_count", 0) > 0,
             "message": f"Downloaded OSM data for {result.get('success_count', 0)} grid cells"
@@ -405,11 +426,11 @@ def process_entire_run(config: Dict[str, Any]) -> None:
     # Step 1: Download OSM data
     print("Step 1: Downloading OpenStreetMap data...")
     osm_result = run_with_spinner(
-        osm.download_osm_data,
-        "Downloading OpenStreetMap data",
+        osm.geofabrik_bbox_download,
+        "Downloading OpenStreetMap data from Geofabrik",
         bounds=config["bounds"],
         output_dir=config["output_directory"],
-        coordinate_system=config["coordinate_system"]
+        region="london"  # Default to London, can be changed in config
     )
     
     if not osm_result or not osm_result.get("success", False):
@@ -476,14 +497,13 @@ def download_mesh(config: Dict[str, Any]) -> None:
         input("\nPress Enter to return to the main menu...")
         return
     
-    # Download OSM data using grid approach
+    # Download OSM data from Geofabrik
     osm_result = run_with_spinner(
-        download_osm_data,
-        "Downloading OpenStreetMap data",
+        osm.geofabrik_bbox_download,
+        "Downloading OpenStreetMap data from Geofabrik",
         bounds=config["bounds"],
         output_dir=config["output_directory"],
-        grid_size=config.get("cell_size"),
-        coordinate_system=config.get("coordinate_system", "EPSG:4326")
+        region="london"  # Default to London, can be changed in config later
     )
     
     if not osm_result or not osm_result.get("success", False):
