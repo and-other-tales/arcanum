@@ -188,3 +188,6 @@ CLAUDE.md
 
 # Hidden arcanum directory
 .arcanum/
+
+# Configuration files
+.config/

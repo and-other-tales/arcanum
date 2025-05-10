@@ -1,202 +1,219 @@
-# Google 3D Tiles Integration for Arcanum
-
-This document explains how to use Google Maps Platform's Photorealistic 3D Tiles API with the Arcanum system.
+# Google 3D Tiles Integration Guide
 
 ## Overview
 
-The Google 3D Tiles integration allows you to:
+Arcanum provides comprehensive integration with Google Maps Platform's 3D Tiles API, allowing you to download and incorporate photorealistic 3D city models. This integration has been enhanced to ensure complete coverage of entire cities through spatial subdivision and efficient processing.
 
-1. Fetch photorealistic 3D tiles from Google Maps Platform
-2. Stream and process tiles to local storage
-3. Upload processed tiles to Google Cloud Storage
-4. Optionally transform tiles to match the Arcanum visual style
-5. Use the tiles within Arcanum's 3D environment
+## Key Features
+
+- 📍 **Precise Geographic Targeting**: Download tiles for specific geographic regions
+- 🏙️ **Complete City Coverage**: Ensure entire urban areas are covered using city-based downloads
+- 🧩 **Grid-Based Processing**: Handle large areas by automatically dividing into manageable cells
+- 📊 **Coverage Verification**: Confirm complete coverage through visual and analytical tools
+- 💾 **Intelligent Caching**: Reduce redundant downloads through local caching
+- 🔄 **Session Management**: Handle API authentication automatically
 
 ## Prerequisites
 
-Before using this integration, you need:
+Before using the Google 3D Tiles integration, you need:
 
-1. A Google Maps Platform API key with the "Maps 3D Tiles" API enabled
-2. Google Cloud Storage access configured
-3. Arcanum's system properly set up with ComfyUI for style transformation
+1. A Google Maps Platform API key with access to 3D Tiles
+2. Python 3.10 or higher with required dependencies (shapely, pyproj, requests)
+3. Sufficient storage space (3D tile data can be substantial)
 
-## Setup
+## Environment Setup
 
-1. Add your Google Maps API key to the `.env` file:
-   ```
-   GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
-   ```
-
-2. Install required dependencies:
-   ```bash
-   pip install requests google-cloud-storage dotenv
-   ```
-
-3. Ensure the Google 3D Tiles integration module is in your `integration_tools` directory:
-   ```
-   integration_tools/google_3d_tiles_integration.py
-   ```
-
-## Usage
-
-### Command Line Interface
-
-The easiest way to use the integration is through the provided command-line tool:
+Set up your API key using environment variables:
 
 ```bash
-# Fetch metadata about available 3D tiles
-./fetch_google_3d_tiles.py --fetch-metadata
-
-# Fetch the tileset.json for a specific region
-./fetch_google_3d_tiles.py --fetch-tileset --region us
-
-# Download 3D tiles to local storage
-./fetch_google_3d_tiles.py --download --region us --depth 3 --output-dir ./arcanum_3d_output
-
-# Stream tiles directly to Google Cloud Storage
-./fetch_google_3d_tiles.py --stream --region us --depth 3 --gcs-bucket arcanum-maps
-
-# Download, transform to Arcanum style, and upload
-./fetch_google_3d_tiles.py --download --convert --upload --region us --depth 2
+export GOOGLE_MAPS_API_KEY="your_api_key_here"
+# Optionally, set a specific key for 3D Tiles if different
+export GOOGLE_3D_TILES_API_KEY="your_3d_tiles_api_key_here"
 ```
 
-### Important Arguments
+## Basic Usage
 
-- `--api-key`: Google Maps API key (or set GOOGLE_MAPS_API_KEY env var)
-- `--region`: Region for tileset (default "us")
-- `--depth`: Maximum recursion depth for tile fetching
-- `--output-dir`: Local output directory for downloaded tiles
-- `--gcs-bucket`: GCS bucket name for uploading
-- `--cdn-url`: CDN URL for accessing tiles
-- `--tileset-name`: Name for the tileset
-- `--keep-originals`: Keep original files after transformation
-- `--convert`: Transform to Arcanum style
+### Downloading Tiles for a Bounding Box
 
-### Programmatic Usage
-
-You can also use the integration directly in your Python code:
+To download 3D tiles for a specific geographic area:
 
 ```python
+from integration_tools.google_3d_tiles_integration import fetch_tiles
+
+# Define the geographic bounds
+bounds = {
+    "north": 51.5084,  # Northern latitude bound
+    "south": 51.5064,  # Southern latitude bound
+    "east": -0.1258,   # Eastern longitude bound
+    "west": -0.1298    # Western longitude bound
+}
+
+# Download tiles
+result = fetch_tiles(
+    bounds=bounds,
+    output_dir="./3d_tiles_output",
+    max_depth=3,        # Maximum recursion depth to traverse
+    region=None,        # Optional region name
+    api_key=None        # Uses environment variable if None
+)
+
+# Check result
+if result["success"]:
+    print(f"Downloaded {result['downloaded_tiles']} tiles")
+    print(f"Tileset path: {result['tileset_path']}")
+else:
+    print(f"Download failed: {result['error']}")
+```
+
+### Downloading Tiles for an Entire City
+
+For complete city coverage, use the city-based download approach:
+
+```python
+from integration_tools.google_3d_tiles_integration import fetch_city_tiles
+
+# Download tiles for an entire city
+result = fetch_city_tiles(
+    city_name="London",
+    output_dir="./london_3d_tiles",
+    max_depth=4,         # Use higher depth for more detail
+    region=None,
+    api_key=None
+)
+
+# Check result
+if result["success"]:
+    print(f"Downloaded {result['downloaded_tiles']} tiles")
+    print(f"City: {result['city']}")
+    print(f"Used {result['grid_cells']} grid cells for processing")
+else:
+    print(f"City download failed: {result['error']}")
+```
+
+## Command Line Interface
+
+Arcanum provides convenient command-line tools for working with 3D tiles:
+
+### Fetch 3D Tiles for a Bounding Box
+
+```bash
+python fetch_google_3d_tiles.py --bounds 51.5084,51.5064,-0.1258,-0.1298 --output ./3d_tiles_output --depth 3
+```
+
+### Fetch 3D Tiles for an Entire City
+
+```bash
+python fetch_city_3d_tiles.py --city London --output ./london_3d_tiles --depth 4
+```
+
+### List Available Predefined Cities
+
+```bash
+python fetch_city_3d_tiles.py --list-cities
+```
+
+## Advanced Features
+
+### Spatial Filtering
+
+The integration includes spatial filtering to focus on specific regions within larger areas:
+
+```python
+# Filter tiles to specific bounds
 from integration_tools.google_3d_tiles_integration import Google3DTilesIntegration
-from storage_manager import ArcanumStorageManager
+from integration_tools.spatial_bounds import city_polygon, polygon_to_bounds
 
-# Initialize the integration
-tiles_integration = Google3DTilesIntegration(
-    api_key="your_google_maps_api_key_here",
-    cache_dir="./cache"
-)
+# Get city polygon and bounds
+city_poly = city_polygon("London")
+city_bounds = polygon_to_bounds(city_poly)
 
-# Fetch the tileset.json
-tileset_json = tiles_integration.fetch_tileset_json(region="us")
+# Create integration instance
+integration = Google3DTilesIntegration()
 
-# Download tiles recursively
-downloaded_paths = tiles_integration.fetch_tiles_recursive(
-    tileset_json, 
-    max_depth=3, 
-    output_dir="./output"
-)
+# Fetch tileset
+tileset_json = integration.fetch_tileset_json()
 
-# Stream tiles to storage
-storage_manager = ArcanumStorageManager()
-results = tiles_integration.stream_tiles_to_storage(
-    region="us",
-    max_depth=3,
-    storage_manager=storage_manager
+# Download only tiles that intersect with city bounds
+downloaded_paths = integration.fetch_tiles_recursive(
+    tileset_json,
+    max_depth=4,
+    output_dir="./london_3d_tiles",
+    spatial_filter=city_bounds
 )
 ```
 
-## Google 3D Tiles Structure
+### Coverage Verification
 
-Google's 3D Tiles API follows the OGC 3D Tiles specification:
+Verify that your downloaded tiles provide complete coverage of your target area:
 
-```
-Base URL: https://tile.googleapis.com/v1/3dtiles/features/basic/
+```python
+from integration_tools.coverage_verification import CoverageVerifier
 
-Endpoints:
-- tileset.json - Root tileset descriptor
-- {tile_path} - Path to specific tile content
-- metadata - Metadata about available features
-```
+# Initialize verifier with target bounds
+verifier = CoverageVerifier(
+    bounds=city_bounds,
+    output_dir="./coverage_verification"
+)
 
-Tiles are organized in a hierarchical structure, with each tile potentially containing:
+# Verify coverage
+result = verifier.verify_3d_tiles_coverage(
+    tiles_dir="./london_3d_tiles",
+    verify_bounds=True,
+    generate_report=True
+)
 
-1. `boundingVolume` - Spatial extent of the tile
-2. `geometricError` - Level of detail metric
-3. `content` - URL to the tile content
-4. `children` - Array of child tiles
-
-The Arcanum system downloads these tiles and organizes them in a compatible structure:
-
-```
-tilesets/
-  └─ google_3d_tiles_{region}/
-     ├─ tileset.json
-     └─ tiles/
-         ├─ content/
-         │   ├─ 0.b3dm
-         │   ├─ 1.b3dm
-         │   └─ ...
-         └─ subtiles/
-             └─ ...
+if result["success"]:
+    coverage = result["bounds_coverage"]
+    print(f"Coverage percentage: {coverage['coverage_percentage']:.1f}%")
+    print(f"Complete coverage: {coverage['is_complete_coverage']}")
 ```
 
-## Tile Formats
+## Large Area Processing
 
-Google's 3D Tiles API provides tiles in various formats:
+For very large areas, the system automatically uses a grid-based approach:
 
-- `.b3dm` - Batched 3D Model format (buildings, terrain)
-- `.pnts` - Point Cloud format (detailed features)
-- `.i3dm` - Instanced 3D Model format (repeating elements)
-- `.glb` - GL Transmission Format Binary (raw models)
+1. The area is divided into a grid of smaller cells
+2. Each cell is processed independently
+3. Results are combined while avoiding duplicates
+4. Cell size is automatically determined based on area
 
-The Arcanum integration can download and process all these formats.
-
-## Transformation to Arcanum Style
-
-When using the `--convert` option, the system will:
-
-1. Download original photorealistic tiles from Google
-2. Process them using the ComfyUI Flux model
-3. Apply the Arcanum visual style (gothic, Victorian, steampunk)
-4. Upload the transformed tiles to GCS
-5. Create a new tileset with the transformed visuals
-
-This allows you to have a photorealistic city that fits the Arcanum aesthetic.
-
-## Error Handling
-
-The integration includes robust error handling:
-
-1. Automatic retries with exponential backoff for network errors
-2. Caching of downloaded tiles to prevent redundant requests
-3. Detailed logging for troubleshooting
-4. Structured error responses for programmatic integration
-
-## Limitations
-
-Be aware of the following limitations:
-
-1. The Google Maps Platform API key requires billing information
-2. API usage is subject to Google's quotas and pricing
-3. Transforming large areas can be computationally intensive
-4. Some regions may have limited 3D tile availability
-
-## Best Practices
-
-To make the most of the Google 3D Tiles integration:
-
-1. Start with a small area and depth to test functionality
-2. Use the `--depth` parameter judiciously to control tile count
-3. Consider using `--skip-existing` for resumed downloads
-4. Adjust transformation strength for different visual results
-5. Cache the tileset.json to avoid redundant requests
+This approach handles areas of virtually any size while avoiding API limitations.
 
 ## Troubleshooting
 
-Common issues and their solutions:
+### API Key Issues
 
-1. **API Key Issues**: Ensure your API key has the "Maps 3D Tiles" API enabled
-2. **No Tiles Available**: Some regions may not have 3D tile coverage
-3. **Download Failures**: Check network connectivity and retry with lower depth
-4. **Transformation Errors**: Ensure ComfyUI is properly configured
-5. **Storage Issues**: Verify GCS permissions and bucket existence
+If you encounter authentication errors:
+
+1. Verify your API key is valid and has 3D Tiles access
+2. Check that the environment variable is correctly set
+3. Consider passing the API key directly to the function
+
+### Coverage Gaps
+
+If you notice gaps in coverage:
+
+1. Increase the `max_depth` parameter (4-5 for city-scale coverage)
+2. Verify that your bounds correctly encompass the target area
+3. Use the coverage verification tools to identify specific gaps
+
+### Tile Download Failures
+
+If specific tiles fail to download:
+
+1. Check network connectivity
+2. Verify API quota and rate limits
+3. Increase the `retries` parameter (default is 3)
+4. Look for specific error messages in the logs
+
+## Best Practices
+
+1. **Use City-Based Downloads**: For complete coverage, use `fetch_city_tiles` rather than manual bounds
+2. **Appropriate Depth Selection**: Start with depth 3-4 and adjust based on your needs
+3. **Verify Coverage**: Always verify coverage to ensure completeness
+4. **Manage Storage**: 3D tile data can be large - ensure sufficient disk space
+5. **Respect API Limits**: Be mindful of Google Maps Platform usage limits and costs
+
+## API Reference
+
+See the [Technical Documentation](technical_documentation.md) for comprehensive API details.

@@ -11,12 +11,24 @@ import sys
 import logging
 import json
 import requests
-from typing import Dict, List, Any, Optional, Tuple, Union
+import math
+from typing import Dict, List, Any, Optional, Tuple, Union, Set
 from pathlib import Path
 import time
 from urllib.parse import urlparse, urlencode, quote
 
-# Add module level function for direct import
+# Import spatial bounds utilities if available
+try:
+    from integration_tools.spatial_bounds import (
+        bounds_to_polygon, polygon_to_bounds, city_polygon,
+        parse_3d_tile_bounds, bounds_contains_tile, create_grid_from_bounds,
+        calculate_bounds_area_km2
+    )
+    SPATIAL_UTILS_AVAILABLE = True
+except ImportError:
+    SPATIAL_UTILS_AVAILABLE = False
+
+# Add module level functions for direct import
 def fetch_tiles(bounds: Dict, output_dir: str, max_depth: int = 3, region: str = None,
                api_key: str = None, cache_dir: str = None) -> Dict:
     """Fetch 3D tiles for the specified bounds and save to output directory.
@@ -46,6 +58,42 @@ def fetch_tiles(bounds: Dict, output_dir: str, max_depth: int = 3, region: str =
 
     # Delegate to the class method
     return integration.fetch_tiles(bounds, output_dir, max_depth, region)
+
+def fetch_city_tiles(city_name: str, output_dir: str, max_depth: int = 4, region: str = None,
+                   api_key: str = None, cache_dir: str = None) -> Dict:
+    """Fetch 3D tiles for an entire city and save to output directory.
+
+    This is a module-level function that creates a Google3DTilesIntegration instance
+    and delegates to its fetch_city_tiles method.
+
+    Args:
+        city_name: Name of the city (e.g., "London", "New York")
+        output_dir: Directory to save downloaded tiles
+        max_depth: Maximum recursion depth for tile fetching
+        region: Optional region name (default global tileset)
+        api_key: Google Maps API key with 3D Tiles access (from env var if None)
+        cache_dir: Directory to cache downloaded tiles
+
+    Returns:
+        Dictionary with download results including success status
+    """
+    if not SPATIAL_UTILS_AVAILABLE:
+        return {
+            "success": False,
+            "error": "Spatial utilities not available. Install shapely and pyproj packages."
+        }
+
+    # Create class instance and configure it with API key
+    integration = Google3DTilesIntegration(
+        api_key=api_key,
+        cache_dir=cache_dir
+    )
+
+    # Log the request
+    logging.info(f"Fetching 3D tiles for city '{city_name}' with max_depth={max_depth}, region={region}")
+
+    # Delegate to the class method
+    return integration.fetch_city_tiles(city_name, output_dir, max_depth, region)
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -284,35 +332,51 @@ class Google3DTilesIntegration:
         logger.error(f"Failed to fetch tile after {self.retries} attempts.")
         return None
     
-    def fetch_tiles_recursive(self, tileset_json: Dict, max_depth: int = 3, 
-                             output_dir: str = None, root_path: str = None) -> List[str]:
+    def fetch_tiles_recursive(self, tileset_json: Dict, max_depth: int = 3,
+                             output_dir: str = None, root_path: str = None,
+                             spatial_filter: Optional[Dict[str, float]] = None) -> List[str]:
         """Recursively fetch all tiles referenced in a tileset.json.
-        
+
         Args:
             tileset_json: The tileset JSON object
             max_depth: Maximum recursion depth
             output_dir: Directory to save tiles
             root_path: Root path for relative URLs
-            
+            spatial_filter: Optional bounds dictionary to filter tiles by geographic location
+
         Returns:
             List of paths to downloaded tiles
         """
         downloaded_paths = []
-        
+
         if output_dir:
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Helper function to process a tile
         def process_tile(tile, current_depth=0, parent_path=None):
             # Stop if we've reached max depth
             if current_depth > max_depth:
                 return
-            
+
+            # Apply spatial filtering if requested and spatial bounds utilities are available
+            if spatial_filter and SPATIAL_UTILS_AVAILABLE:
+                # Try to extract the tile's geographic bounds
+                tile_bounds = parse_3d_tile_bounds(tile)
+
+                # If we have bounds and they don't intersect with our filter, skip this tile
+                if tile_bounds and not bounds_contains_tile(spatial_filter, tile_bounds):
+                    logger.debug(f"Skipping tile outside spatial filter bounds at depth {current_depth}")
+                    return
+
+                # If we couldn't determine bounds, log a warning but continue processing
+                if not tile_bounds and current_depth == 0:
+                    logger.warning("Could not determine bounds for root tile, spatial filtering may be ineffective")
+
             # Check if the tile has content to download
             if "content" in tile and "uri" in tile["content"]:
                 uri = tile["content"]["uri"]
-                
+
                 # Handle relative URLs
                 if not uri.startswith("http"):
                     # If we have a root path, join it with the URI
@@ -324,55 +388,191 @@ class Google3DTilesIntegration:
                         full_path = os.path.join(root_path, uri)
                     else:
                         full_path = uri
-                        
+
                     # Clean up path
                     full_path = os.path.normpath(full_path)
                 else:
                     # For absolute URLs, we need to extract the path
                     parsed_url = urlparse(uri)
                     full_path = parsed_url.path
-                    
+
                     # Remove leading /v1/3dtiles/features/basic if present
                     if full_path.startswith(self.tileset_endpoint):
                         full_path = full_path[len(self.tileset_endpoint):]
-                    
+
                     # Remove leading slash
                     if full_path.startswith("/"):
                         full_path = full_path[1:]
-                
+
                 # Download the tile
                 if output_dir:
                     tile_output_path = output_dir / full_path
                 else:
                     tile_output_path = None
-                    
+
                 downloaded_path = self.fetch_tile(full_path, tile_output_path)
-                
+
                 if downloaded_path:
                     downloaded_paths.append(downloaded_path)
-                    
+
                     # If the tile is a tileset, load it and process recursively
                     if uri.endswith(".json"):
                         try:
                             with open(downloaded_path, "r") as f:
                                 subtileset = json.load(f)
-                                
+
                             # Process the root tile of the subtileset
                             if "root" in subtileset:
                                 process_tile(subtileset["root"], current_depth + 1, full_path)
                         except Exception as e:
                             logger.error(f"Error processing subtileset {downloaded_path}: {str(e)}")
-            
+
             # Process child tiles
             if "children" in tile:
                 for child in tile["children"]:
                     process_tile(child, current_depth + 1, parent_path)
-        
+
         # Start with the root tile
         if "root" in tileset_json:
             process_tile(tileset_json["root"])
-        
+
         return downloaded_paths
+
+    def fetch_city_tiles(self, city_name: str, output_dir: str, max_depth: int = 4, region: str = None) -> Dict:
+        """Fetch 3D tiles for an entire city and save to output directory.
+
+        This method ensures complete coverage of a city by:
+        1. Getting the city's geographic bounds
+        2. If the bounds are large, dividing into a grid of smaller areas
+        3. Fetching tiles for each area with spatial filtering to avoid duplicates
+
+        Args:
+            city_name: Name of the city (e.g., "London", "New York")
+            output_dir: Directory to save downloaded tiles
+            max_depth: Maximum recursion depth for tile fetching
+            region: Optional region name (default global tileset)
+
+        Returns:
+            Dictionary with download results including success status
+        """
+        if not SPATIAL_UTILS_AVAILABLE:
+            return {
+                "success": False,
+                "error": "Spatial utilities not available. Install shapely and pyproj packages."
+            }
+
+        try:
+            # Create output directory if needed
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Get city polygon
+            city_poly = city_polygon(city_name)
+            if not city_poly:
+                return {
+                    "success": False,
+                    "error": f"City '{city_name}' not found in predefined cities"
+                }
+
+            # Convert to bounds dictionary
+            city_bounds = polygon_to_bounds(city_poly)
+
+            # Calculate area to determine if we need to split into grid
+            area_km2 = calculate_bounds_area_km2(city_bounds)
+            logger.info(f"City area: {area_km2:.2f} km²")
+
+            # For large cities (>100 km²), divide into a grid to ensure complete coverage
+            # and avoid hitting download limits
+            grid_cells = []
+            if area_km2 > 100:
+                # Determine appropriate cell size based on area
+                # Larger area = larger cell size to keep number of cells manageable
+                if area_km2 > 1000:
+                    cell_size_meters = 5000  # 5 km grid for very large cities
+                elif area_km2 > 500:
+                    cell_size_meters = 3000  # 3 km grid for large cities
+                else:
+                    cell_size_meters = 2000  # 2 km grid for medium cities
+
+                logger.info(f"Dividing city into grid with {cell_size_meters}m cells")
+                grid_cells = create_grid_from_bounds(city_bounds, cell_size_meters)
+                logger.info(f"Created grid with {len(grid_cells)} cells")
+            else:
+                # For smaller cities, use a single cell
+                grid_cells = [city_bounds]
+
+            # Generate a session token for this request session
+            session_token = f"arcanum_session_{int(time.time())}"
+            logger.info(f"Created session token: {session_token}")
+
+            # First fetch the tileset.json with API key authentication
+            tileset_json = self.fetch_tileset_json(region)
+
+            # If the tileset has session parameter requirements, add it
+            if "asset" in tileset_json and "extras" in tileset_json["asset"]:
+                # Add session information if not present
+                if "session" not in tileset_json["asset"]["extras"]:
+                    tileset_json["asset"]["extras"]["session"] = session_token
+
+            # Save the master tileset.json to the output directory
+            tileset_path = os.path.join(output_dir, "tileset.json")
+            with open(tileset_path, "w") as f:
+                json.dump(tileset_json, f, indent=2)
+
+            # Track all downloaded paths
+            all_downloaded_paths = [tileset_path]
+            processed_tiles = set()  # Track processed tiles to avoid duplicates
+
+            # Process each grid cell
+            for i, cell_bounds in enumerate(grid_cells):
+                logger.info(f"Processing grid cell {i+1}/{len(grid_cells)}: {cell_bounds}")
+
+                # Create a subdirectory for this cell if using a grid
+                if len(grid_cells) > 1:
+                    cell_dir = os.path.join(output_dir, f"cell_{i}")
+                    os.makedirs(cell_dir, exist_ok=True)
+                else:
+                    cell_dir = output_dir
+
+                # Fetch tiles for this cell with spatial filtering
+                cell_downloaded_paths = self.fetch_tiles_recursive(
+                    tileset_json,
+                    max_depth=max_depth,
+                    output_dir=cell_dir,
+                    spatial_filter=cell_bounds
+                )
+
+                # Add to master list, filtering out duplicates
+                for path in cell_downloaded_paths:
+                    rel_path = os.path.relpath(path, output_dir)
+                    if rel_path not in processed_tiles:
+                        processed_tiles.add(rel_path)
+                        all_downloaded_paths.append(path)
+
+            # Extract and save copyright information if present
+            if "asset" in tileset_json and "copyright" in tileset_json["asset"]:
+                copyright_info = tileset_json["asset"]["copyright"]
+                copyright_path = os.path.join(output_dir, "copyright.txt")
+                with open(copyright_path, "w") as f:
+                    f.write(copyright_info)
+                all_downloaded_paths.append(copyright_path)
+                logger.info(f"Saved copyright information to {copyright_path}")
+
+            return {
+                "success": True,
+                "city": city_name,
+                "bounds": city_bounds,
+                "grid_cells": len(grid_cells),
+                "downloaded_tiles": len(all_downloaded_paths),
+                "paths": all_downloaded_paths,
+                "tileset_path": tileset_path
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching 3D tiles for city '{city_name}': {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     def fetch_tiles(self, bounds: Dict, output_dir: str, max_depth: int = 3, region: str = None) -> Dict:
         """Fetch 3D tiles for the specified bounds and save to output directory.

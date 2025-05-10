@@ -161,6 +161,8 @@ def main():
     point_parser.add_argument("--fov", type=int, default=90, help="Field of view (20-120)")
     point_parser.add_argument("--pitch", type=int, default=0, help="Camera pitch (-90 to 90)")
     point_parser.add_argument("--radius", type=int, default=100, help="Search radius in meters")
+    point_parser.add_argument("--max-radius", type=int, default=1000, help="Maximum search radius for finding nearby imagery")
+    point_parser.add_argument("--no-nearest", action="store_true", help="Disable searching for nearest imagery")
     point_parser.add_argument("--panorama", action="store_true", help="Capture full panorama")
     
     # Area mode
@@ -171,6 +173,8 @@ def main():
     area_parser.add_argument("--grid-size", type=float, default=100.0, help="Size of grid cells in meters")
     area_parser.add_argument("--fov", type=int, default=90, help="Field of view (20-120)")
     area_parser.add_argument("--radius", type=int, default=100, help="Search radius in meters")
+    area_parser.add_argument("--max-radius", type=int, default=1000, help="Maximum search radius for finding nearby imagery")
+    area_parser.add_argument("--no-nearest", action="store_true", help="Disable searching for nearest imagery")
     
     # Parse arguments
     args = parser.parse_args()
@@ -199,13 +203,17 @@ def main():
             logger.info(f"Fetching Street View panorama for location ({lat}, {lng})")
             result = integration.fetch_panorama(
                 lat, lng, args.output,
-                radius=args.radius
+                radius=args.radius,
+                max_search_radius=args.max_radius,
+                find_nearest=not args.no_nearest
             )
         else:
             logger.info(f"Fetching Street View image for location ({lat}, {lng})")
             result = integration.fetch_street_view(
                 lat, lng, args.output,
-                heading=args.heading, fov=args.fov, pitch=args.pitch, radius=args.radius
+                heading=args.heading, fov=args.fov, pitch=args.pitch, radius=args.radius,
+                max_search_radius=args.max_radius,
+                find_nearest=not args.no_nearest
             )
         
         if result.get("success", False):

@@ -165,7 +165,8 @@ def extract_buildings_and_roads(pbf_path: str, output_dir: str) -> Tuple[Optiona
                 ], check=True)
                 
                 # Convert buildings to GeoPackage
-                buildings_gdf = gpd.read_file(buildings_json)
+                # Specify 'multipolygons' layer to avoid warning
+                buildings_gdf = gpd.read_file(buildings_json, layer='multipolygons')
                 if not buildings_gdf.empty:
                     logger.info(f"Extracted {len(buildings_gdf)} buildings")
                     buildings_gdf.to_file(buildings_path, layer='buildings', driver='GPKG')
@@ -183,7 +184,8 @@ def extract_buildings_and_roads(pbf_path: str, output_dir: str) -> Tuple[Optiona
                 ], check=True)
                 
                 # Convert roads to GeoPackage
-                roads_gdf = gpd.read_file(roads_json)
+                # Specify 'lines' layer for roads to avoid warning
+                roads_gdf = gpd.read_file(roads_json, layer='lines')
                 if not roads_gdf.empty:
                     logger.info(f"Extracted {len(roads_gdf)} road segments")
                     roads_gdf.to_file(roads_path, layer='roads', driver='GPKG')

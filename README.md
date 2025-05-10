@@ -1,24 +1,43 @@
-# Arcanum: 3D City Generation Framework
+# 🏙️ Arcanum: 3D City Generation Framework
 
 ## Overview
 
-Arcanum is a framework for generating stylized 3D cities by combining data from various sources:
-- OpenStreetMap for building and road layouts
-- Satellite imagery for textures
-- ComfyUI with Flux models for style transfer and image generation
-- Google 3D Tiles for reference geometry
+Arcanum is a comprehensive framework for generating stylized 3D cities by combining data from various sources:
+- 🗺️ OpenStreetMap for building and road layouts
+- 📸 Google Street View for street-level perspectives
+- 🌐 Google 3D Tiles for reference geometry
+- 🖼️ ComfyUI with Flux models for style transfer and image generation
 
 The system transforms real-world geographic data into a stylized "Arcanum" aesthetic characterized by Victorian-era steampunk and gothic fantasy elements.
 
-## Features
+## ✨ Features
 
-- **Geographic Data Collection**: Downloads and processes OpenStreetMap data, LiDAR point clouds, and satellite imagery
+- **Complete Geographic Coverage**: Enhanced systems ensure comprehensive coverage of target areas
+  - City-scale 3D tiles download with automatic grid subdivision
+  - Road network-based Street View collection following actual streets
+  - Coverage verification tools to identify and address gaps
+
+- **Geographic Data Collection**: Downloads and processes OpenStreetMap data, Google 3D Tiles, and Street View imagery
+  - Intelligent nearest imagery finder for robust Street View coverage
+  - Grid-based downloads for handling large geographic areas
+  - Spatial bounds utilities for precise geographic targeting
+
 - **Style Transformation**: Uses X-Labs Flux models to transform photorealistic imagery into the Arcanum aesthetic
-- **3D Model Generation**: Creates building models, terrain, and street elements from collected data
-- **Unity Integration**: Prepares assets for import into Unity3D with streaming and LOD support
-- **Google Cloud Integration**: Supports streaming and storage of 3D tiles and assets
+  - Structure-preserving style transfer with ControlNet
+  - Consistent aesthetic application across diverse urban elements
+  - Batch processing for efficiency
 
-## Installation
+- **3D Model Generation**: Creates building models, terrain, and street elements from collected data
+  - Footprint extrusion with appropriate height information
+  - Roof type detection and generation
+  - LOD generation for performance optimization
+
+- **Unity Integration**: Prepares assets for import into Unity3D with streaming and LOD support
+  - Material and texture setup for HDRP
+  - Prefab generation for entire city blocks
+  - Asset organization for large-scale scenes
+
+## 🔧 Installation
 
 ### Prerequisites
 
@@ -57,14 +76,14 @@ The system transforms real-world geographic data into a stylized "Arcanum" aesth
    # Edit .env with your API keys and paths
    ```
 
-## Usage
+## 🚀 Usage
 
 Arcanum provides several commands for different operations:
 
 ### Generate a Complete City
 
 ```bash
-python arcanum.py generate --output ./my_city --bounds 51.5084,51.5064,-0.1258,-0.1298 --cell-size 100
+python arcanum.py generate --city "London" --output ./london_city --style "arcanum_gothic"
 ```
 
 ### Download OpenStreetMap Data
@@ -73,56 +92,93 @@ python arcanum.py generate --output ./my_city --bounds 51.5084,51.5064,-0.1258,-
 python arcanum.py osm --output ./my_osm_data --bounds 51.5084,51.5064,-0.1258,-0.1298 --cell-size 100
 ```
 
+### Download 3D Tiles for a City
+
+```bash
+python fetch_city_3d_tiles.py --city "London" --output ./london_3d_tiles --depth 4
+```
+
+### Collect Street View Along Roads
+
+```bash
+python fetch_street_view_along_roads.py --osm ./data/london.gpkg --output ./london_street_view --interval 50
+```
+
+### Verify Coverage
+
+```bash
+python verify_coverage.py --mode both --city "London" --osm ./data/london.gpkg --tiles-dir ./london_3d_tiles --street-view-dir ./london_street_view
+```
+
 ### Transform Images with Arcanum Style
 
 ```bash
 python arcanum.py transform --input ./my_images --output ./styled_images --prompt "arcanum gothic fantasy steampunk"
 ```
 
-## Architecture
+## 🏗️ Architecture
 
 Arcanum is organized into several modules:
 
-### OSM Module
+### Data Collection Modules
 
-The OSM module handles downloading and processing OpenStreetMap data:
+- **OSM Module**: Handles downloading and processing OpenStreetMap data
+  ```python
+  from modules import osm
+  result = osm.download_osm_data(bounds, output_dir)
+  ```
 
-```python
-from modules import osm
-result = osm.download_osm_data(bounds, output_dir)
-```
+- **Google 3D Tiles**: Manages photorealistic 3D city model download
+  ```python
+  from integration_tools import google_3d_tiles_integration
+  result = google_3d_tiles_integration.fetch_city_tiles("London", output_dir)
+  ```
 
-### ComfyUI Module
+- **Street View Integration**: Collects street-level imagery along road networks
+  ```python
+  from integration_tools import street_view_integration
+  from integration_tools import road_network
+  result = road_network.fetch_street_view_along_roads(osm_path, output_dir)
+  ```
 
-The ComfyUI module provides integration with ComfyUI and X-Labs Flux models for image transformation:
+### Styling and Processing
 
-```python
-from modules import comfyui
-transformer = comfyui.ArcanumStyleTransformer()
-result_paths = transformer.batch_transform_images(image_paths, output_dir, prompt)
-```
+- **ComfyUI Module**: Integrates with ComfyUI and X-Labs Flux models for image transformation
+  ```python
+  from modules import comfyui
+  transformer = comfyui.ArcanumStyleTransformer()
+  result_paths = transformer.batch_transform_images(image_paths, output_dir, prompt)
+  ```
 
-### Integration Tools
+### Output and Verification
 
-Integration tools connect Arcanum to external services:
+- **Coverage Verification**: Ensures comprehensive coverage of target areas
+  ```python
+  from integration_tools import coverage_verification
+  verifier = coverage_verification.CoverageVerifier(bounds=city_bounds)
+  result = verifier.verify_3d_tiles_coverage(tiles_dir)
+  ```
 
-```python
-from integration_tools import google_3d_tiles_integration
-from integration_tools import storage_integration
-from integration_tools import unity_integration
-```
+- **Unity Integration**: Prepares assets for Unity3D import
+  ```python
+  from integration_tools import unity_integration
+  unity_integration.prepare_unity_assets(models_dir, textures_dir, output_dir)
+  ```
 
-## Documentation
+## 📚 Documentation
 
 For more detailed information, see the following documents:
 
-- [Installation Guide](installation.md) - Detailed setup instructions
-- [Technical Documentation](technical_documentation.md) - System architecture and implementation details
-- [Google 3D Tiles Integration](google_3d_tiles_integration.md) - Working with Google Maps 3D Tiles
-- [Storage Integration](storage_integration.md) - Cloud storage integration
-- [Unity Integration](unity_integration.md) - Importing models into Unity3D
+- [Installation Guide](docs/installation.md) - Detailed setup instructions
+- [Technical Documentation](docs/technical_documentation.md) - System architecture and implementation details
+- [Google 3D Tiles Integration](docs/google_3d_tiles_integration.md) - Working with Google Maps 3D Tiles
+- [Street View Integration](docs/street_view_integration.md) - Road-based Street View collection
+- [Coverage Verification](docs/coverage_verification.md) - Ensuring comprehensive coverage
+- [Storage Integration](docs/storage_integration.md) - Cloud storage integration
+- [Unity Integration](docs/unity_integration.md) - Importing models into Unity3D
+- [API Keys Configuration](docs/API_KEYS.md) - Setting up required API keys
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
 ### Logging
 
@@ -130,6 +186,8 @@ All logs are stored in the `.arcanum/logs` directory:
 - `arcanum.log` - Main application log
 - `osm.log` - OpenStreetMap module log
 - `comfyui.log` - ComfyUI integration log
+- `3d_tiles.log` - Google 3D Tiles download log
+- `street_view.log` - Street View collection log
 
 ### GPU Checks
 
@@ -138,7 +196,13 @@ If you encounter GPU memory errors:
 python gpu_check.py  # Verify GPU availability
 ```
 
-## Contributing
+### Common Issues
+
+- **API Key Errors**: Ensure your Google Maps API keys are correctly set in environment variables
+- **Memory Errors**: Reduce batch sizes or processing area size
+- **Coverage Gaps**: Use the coverage verification tools to identify and address specific areas
+
+## 🤝 Contributing
 
 Contributions to Arcanum are welcome! Please follow the standard GitHub workflow:
 
@@ -147,6 +211,6 @@ Contributions to Arcanum are welcome! Please follow the standard GitHub workflow
 3. Make your changes
 4. Submit a pull request
 
-## License
+## 📄 License
 
 Arcanum is licensed under the MIT License. See LICENSE file for details.

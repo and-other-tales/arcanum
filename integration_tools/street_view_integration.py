@@ -236,42 +236,110 @@ class GoogleStreetViewIntegration:
     
     def check_street_view_availability(self, lat: float, lng: float, radius: int = 100) -> Dict:
         """Check if Street View imagery is available for a given location.
-        
+
         Args:
             lat: Latitude of the location
             lng: Longitude of the location
             radius: Maximum radius in meters to look for Street View imagery
-            
+
         Returns:
             Dictionary with availability information
         """
         url = self.get_metadata_url(lat, lng, radius)
         logger.info(f"Checking Street View availability for location ({lat}, {lng})")
-        
+
         # Try to fetch with retries
         for attempt in range(self.retries):
             try:
                 response = requests.get(url, timeout=self.timeout)
                 response.raise_for_status()
-                
+
                 # Parse JSON
                 metadata = response.json()
-                
+
                 # Cache the metadata
                 cache_path = self.cache_dir / f"metadata_{lat}_{lng}.json"
                 with open(cache_path, "w") as f:
                     json.dump(metadata, f, indent=2)
-                
+
                 logger.info(f"Successfully fetched Street View metadata (cached at {cache_path})")
                 return metadata
-                
+
             except requests.exceptions.RequestException as e:
                 wait_time = 2 ** attempt  # Exponential backoff
                 logger.warning(f"Attempt {attempt+1}/{self.retries} failed: {str(e)}. Retrying in {wait_time}s.")
                 time.sleep(wait_time)
-        
+
         logger.error(f"Failed to fetch Street View metadata after {self.retries} attempts.")
         return {"status": "ZERO_RESULTS"}
+
+    def find_nearest_street_view(self, lat: float, lng: float,
+                                max_radius: int = 1000,
+                                radius_step: int = 100,
+                                max_attempts: int = 10) -> Dict:
+        """Find the nearest available Street View imagery by expanding search radius.
+
+        Args:
+            lat: Latitude of the starting location
+            lng: Longitude of the starting location
+            max_radius: Maximum radius in meters to expand search
+            radius_step: Step size in meters to increase radius each attempt
+            max_attempts: Maximum number of attempts with increased radius
+
+        Returns:
+            Dictionary with metadata of nearest imagery found or error status
+        """
+        logger.info(f"Finding nearest Street View imagery for location ({lat}, {lng})")
+
+        # Start with initial radius
+        current_radius = radius_step
+
+        # Try with increasing radius until we find imagery or hit max radius
+        while current_radius <= max_radius and current_radius // radius_step <= max_attempts:
+            logger.info(f"Searching with radius of {current_radius}m")
+
+            # Check for imagery at current radius
+            metadata = self.check_street_view_availability(lat, lng, current_radius)
+
+            # If we found imagery, return it
+            if metadata.get("status") == "OK":
+                found_lat = metadata.get("location", {}).get("lat", lat)
+                found_lng = metadata.get("location", {}).get("lng", lng)
+
+                # Calculate distance from original point
+                from math import radians, cos, sin, asin, sqrt
+
+                def haversine(lat1, lon1, lat2, lon2):
+                    """Calculate the great circle distance between two points in meters"""
+                    # Convert decimal degrees to radians
+                    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+
+                    # Haversine formula
+                    dlon = lon2 - lon1
+                    dlat = lat2 - lat1
+                    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+                    c = 2 * asin(sqrt(a))
+                    r = 6371000  # Radius of earth in meters
+                    return c * r
+
+                distance = haversine(lat, lng, found_lat, found_lng)
+                logger.info(f"Found Street View imagery at ({found_lat}, {found_lng}), {distance:.1f}m away from requested location")
+
+                # Add distance information to metadata
+                metadata["search_distance"] = distance
+                metadata["original_location"] = {"lat": lat, "lng": lng}
+
+                return metadata
+
+            # Increase radius for next attempt
+            current_radius += radius_step
+
+        logger.warning(f"No Street View imagery found within {max_radius}m of location ({lat}, {lng})")
+        return {
+            "status": "ZERO_RESULTS",
+            "error": f"No Street View imagery found within {max_radius}m",
+            "original_location": {"lat": lat, "lng": lng}
+        }
     
     def download_street_view_image(self, lat: float, lng: float, output_path: str = None,
                                  size: str = "640x640", heading: Optional[int] = None,
@@ -334,13 +402,15 @@ class GoogleStreetViewIntegration:
         logger.error(f"Failed to fetch Street View image after {self.retries} attempts.")
         return None
     
-    def fetch_street_view(self, lat: float, lng: float, output_dir: str, 
-                        heading: Optional[int] = None, fov: int = 90, 
-                        pitch: int = 0, radius: int = 100) -> Dict:
+    def fetch_street_view(self, lat: float, lng: float, output_dir: str,
+                        heading: Optional[int] = None, fov: int = 90,
+                        pitch: int = 0, radius: int = 100,
+                        max_search_radius: int = 1000,
+                        find_nearest: bool = True) -> Dict:
         """Fetch Street View imagery for a given location and save to output directory.
-        
+
         If heading is not specified, fetches a 360° panorama (at headings 0, 90, 180, 270).
-        
+
         Args:
             lat: Latitude of the location
             lng: Longitude of the location
@@ -349,36 +419,48 @@ class GoogleStreetViewIntegration:
             fov: Field of view (20-120, default 90)
             pitch: Camera pitch (-90 to 90, default 0)
             radius: Maximum radius in meters to look for Street View imagery
-            
+            max_search_radius: Maximum radius to search for nearby imagery if none found at exact location
+            find_nearest: Whether to search for nearest imagery if none found at exact location
+
         Returns:
             Dictionary with download results including success status
         """
         try:
             # Create output directory if needed
             os.makedirs(output_dir, exist_ok=True)
-            
+
             # First check if Street View is available for this location
             metadata = self.check_street_view_availability(lat, lng, radius)
-            
+
+            # If no imagery found and find_nearest is True, search for nearest imagery
+            if metadata.get("status") != "OK" and find_nearest:
+                logger.info(f"No Street View imagery at exact location ({lat}, {lng}), searching nearby...")
+                metadata = self.find_nearest_street_view(lat, lng, max_radius=max_search_radius)
+
+            # If still no imagery found, return error
             if metadata.get("status") != "OK":
-                logger.warning(f"No Street View imagery available for location ({lat}, {lng})")
+                logger.warning(f"No Street View imagery available near location ({lat}, {lng})")
                 return {
                     "success": False,
-                    "error": "No Street View imagery available for this location",
+                    "error": f"No Street View imagery available within {max_search_radius}m of this location",
                     "location": (lat, lng)
                 }
-            
+
             # Extract the actual location where imagery was found (may differ from requested location)
             actual_lat = metadata.get("location", {}).get("lat", lat)
             actual_lng = metadata.get("location", {}).get("lng", lng)
-            
+
             # Save the found location metadata
             metadata_path = os.path.join(output_dir, "metadata.json")
             with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=2)
-            
+
+            # Add info about search distance if available
+            if "search_distance" in metadata:
+                logger.info(f"Using Street View imagery {metadata['search_distance']:.1f}m away from requested location")
+
             downloaded_paths = []
-            
+
             # If heading is specified, download just that view
             if heading is not None:
                 image_path = os.path.join(output_dir, f"street_view_{heading}.jpg")
@@ -386,10 +468,10 @@ class GoogleStreetViewIntegration:
                     actual_lat, actual_lng, image_path,
                     heading=heading, fov=fov, pitch=pitch
                 )
-                
+
                 if path:
                     downloaded_paths.append(path)
-            
+
             # Otherwise download a panorama (4 images at 90° intervals)
             else:
                 for h in [0, 90, 180, 270]:
@@ -398,19 +480,21 @@ class GoogleStreetViewIntegration:
                         actual_lat, actual_lng, image_path,
                         heading=h, fov=fov, pitch=pitch
                     )
-                    
+
                     if path:
                         downloaded_paths.append(path)
-            
+
             # Return the results
             return {
                 "success": len(downloaded_paths) > 0,
                 "downloaded_images": len(downloaded_paths),
                 "paths": downloaded_paths,
                 "location": (actual_lat, actual_lng),
-                "metadata_path": metadata_path
+                "original_location": (lat, lng),
+                "metadata_path": metadata_path,
+                "search_distance": metadata.get("search_distance", 0)
             }
-            
+
         except Exception as e:
             logger.error(f"Error fetching Street View imagery: {str(e)}")
             return {
@@ -419,73 +503,89 @@ class GoogleStreetViewIntegration:
                 "location": (lat, lng)
             }
     
-    def fetch_panorama(self, lat: float, lng: float, output_dir: str, 
+    def fetch_panorama(self, lat: float, lng: float, output_dir: str,
                      pitch_angles: List[int] = [0, 15, -15],
-                     radius: int = 100) -> Dict:
+                     radius: int = 100,
+                     max_search_radius: int = 1000,
+                     find_nearest: bool = True) -> Dict:
         """Fetch a complete Street View panorama for a given location.
-        
+
         This captures images at multiple headings and pitch angles to create a full panorama.
-        
+
         Args:
             lat: Latitude of the location
             lng: Longitude of the location
             output_dir: Directory to save downloaded imagery
             pitch_angles: List of pitch angles to capture
             radius: Maximum radius in meters to look for Street View imagery
-            
+            max_search_radius: Maximum radius to search for nearby imagery if none found at exact location
+            find_nearest: Whether to search for nearest imagery if none found at exact location
+
         Returns:
             Dictionary with download results including success status
         """
         try:
             # Create output directory if needed
             os.makedirs(output_dir, exist_ok=True)
-            
+
             # First check if Street View is available for this location
             metadata = self.check_street_view_availability(lat, lng, radius)
-            
+
+            # If no imagery found and find_nearest is True, search for nearest imagery
+            if metadata.get("status") != "OK" and find_nearest:
+                logger.info(f"No Street View imagery at exact location ({lat}, {lng}), searching nearby...")
+                metadata = self.find_nearest_street_view(lat, lng, max_radius=max_search_radius)
+
+            # If still no imagery found, return error
             if metadata.get("status") != "OK":
-                logger.warning(f"No Street View imagery available for location ({lat}, {lng})")
+                logger.warning(f"No Street View imagery available near location ({lat}, {lng})")
                 return {
                     "success": False,
-                    "error": "No Street View imagery available for this location",
+                    "error": f"No Street View imagery available within {max_search_radius}m of this location",
                     "location": (lat, lng)
                 }
-            
+
             # Extract the actual location where imagery was found (may differ from requested location)
             actual_lat = metadata.get("location", {}).get("lat", lat)
             actual_lng = metadata.get("location", {}).get("lng", lng)
-            
+
             # Save the found location metadata
             metadata_path = os.path.join(output_dir, "metadata.json")
             with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=2)
-            
+
+            # Add info about search distance if available
+            if "search_distance" in metadata:
+                logger.info(f"Using Street View imagery {metadata['search_distance']:.1f}m away from requested location")
+
             downloaded_paths = []
-            
+
             # Capture images at 30° intervals for each pitch angle
             for pitch in pitch_angles:
                 pitch_dir = os.path.join(output_dir, f"pitch_{pitch}")
                 os.makedirs(pitch_dir, exist_ok=True)
-                
+
                 for heading in range(0, 360, 30):
                     image_path = os.path.join(pitch_dir, f"street_view_{heading}.jpg")
                     path = self.download_street_view_image(
                         actual_lat, actual_lng, image_path,
                         heading=heading, fov=90, pitch=pitch
                     )
-                    
+
                     if path:
                         downloaded_paths.append(path)
-            
+
             # Return the results
             return {
                 "success": len(downloaded_paths) > 0,
                 "downloaded_images": len(downloaded_paths),
                 "paths": downloaded_paths,
                 "location": (actual_lat, actual_lng),
-                "metadata_path": metadata_path
+                "original_location": (lat, lng),
+                "metadata_path": metadata_path,
+                "search_distance": metadata.get("search_distance", 0)
             }
-            
+
         except Exception as e:
             logger.error(f"Error fetching Street View panorama: {str(e)}")
             return {
