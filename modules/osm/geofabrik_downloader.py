@@ -158,10 +158,10 @@ def extract_buildings_and_roads(pbf_path: str, output_dir: str) -> Tuple[Optiona
             # Check if osmium is available
             try:
                 # Extract buildings using osmium
-                buildings_json = os.path.join(temp_dir, "buildings.geojson")
+                buildings_json = os.path.join(temp_dir, "buildings.osm")
                 subprocess.run([
-                    "osmium", "tags-filter", pbf_path, 
-                    "building=*", "-o", buildings_json, "-f", "geojson"
+                    "osmium", "tags-filter", pbf_path,
+                    "building=*", "-o", buildings_json
                 ], check=True)
                 
                 # Convert buildings to GeoPackage
@@ -176,10 +176,10 @@ def extract_buildings_and_roads(pbf_path: str, output_dir: str) -> Tuple[Optiona
                 
                 # Extract roads
                 logger.info(f"Extracting roads from {pbf_path}")
-                roads_json = os.path.join(temp_dir, "roads.geojson")
+                roads_json = os.path.join(temp_dir, "roads.osm")
                 subprocess.run([
-                    "osmium", "tags-filter", pbf_path, 
-                    "highway=*", "-o", roads_json, "-f", "geojson"
+                    "osmium", "tags-filter", pbf_path,
+                    "highway=*", "-o", roads_json
                 ], check=True)
                 
                 # Convert roads to GeoPackage

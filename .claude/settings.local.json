@@ -35,7 +35,9 @@
       "Bash(pip show:*)",
       "Bash(git rm:*)",
       "WebFetch(domain:download.geofabrik.de)",
-      "WebFetch(domain:developers.google.com)"
+      "WebFetch(domain:developers.google.com)",
+      "Bash(osmium:*)",
+      "Bash(ogrinfo:*)"
     ],
     "deny": []
   }
