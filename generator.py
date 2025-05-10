@@ -1713,6 +1713,12 @@ def main():
     parser.add_argument("--bounds", help="Area bounds (north,south,east,west)", default="560000,500000,560000,500000")
     parser.add_argument("--skip-cloud", help="Skip Google Cloud operations", action="store_true")
     parser.add_argument("--comfyui-path", help="Path to ComfyUI installation")
+    parser.add_argument("--transform-only", help="Only transform existing tiles", action="store_true")
+    parser.add_argument("--input-dir", help="Input directory for transformation mode")
+    parser.add_argument("--output-dir", help="Output directory for transformed files")
+    parser.add_argument("--gcs-bucket", help="Google Cloud Storage bucket name", default="arcanum-maps")
+    parser.add_argument("--cdn-url", help="CDN URL for the GCS bucket", default="https://arcanum.fortunestold.co")
+    parser.add_argument("--delete-originals", help="Delete original files after transformation", default=True)
     args = parser.parse_args()
 
     # Update config with command line arguments
@@ -1741,11 +1747,136 @@ def main():
             }
 
     try:
-        # Run the workflow
-        result = run_arcanum_generation_workflow(config)
+        # Check if we're in transform-only mode
+        if args.transform_only and args.input_dir:
+            logger.info(f"Transform-only mode: processing images in {args.input_dir}")
 
-        # Print summary
-        print(json.dumps(result, indent=2))
+            # Import only when needed to avoid startup delay
+            try:
+                from google.cloud import storage
+                gcs_available = True
+            except ImportError:
+                logger.warning("Google Cloud Storage not available. Install with: pip install google-cloud-storage")
+                gcs_available = False
+
+            output_dir = args.output_dir or os.path.join(config["output_directory"], "transformed")
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Initialize ComfyUI style transformer
+            try:
+                from integration_tools.comfyui_integration import ComfyUIStyleTransformer
+                style_transformer = ComfyUIStyleTransformer(
+                    comfyui_path=args.comfyui_path or os.environ.get("COMFYUI_PATH")
+                )
+            except ImportError:
+                logger.error("Could not import ComfyUI integration. Cannot transform images.")
+                sys.exit(1)
+
+            # Process all images in the input directory
+            import glob
+            image_paths = []
+            for ext in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+                image_paths.extend(glob.glob(os.path.join(args.input_dir, f"*{ext}")))
+                image_paths.extend(glob.glob(os.path.join(args.input_dir, f"*{ext.upper()}")))
+
+            # Process each image
+            logger.info(f"Found {len(image_paths)} images to process")
+            transformed_paths = []
+            for image_path in image_paths:
+                try:
+                    # Generate output filename
+                    basename = os.path.basename(image_path)
+                    output_path = os.path.join(output_dir, f"arcanum_{basename}")
+
+                    # Transform image
+                    logger.info(f"Transforming {image_path} to {output_path}")
+                    result = style_transformer.transform_image(
+                        image_path=image_path,
+                        output_path=output_path,
+                        prompt="arcanum gothic victorian fantasy steampunk",
+                        strength=0.75
+                    )
+
+                    if result:
+                        transformed_paths.append(output_path)
+
+                        # Upload to GCS if available
+                        if gcs_available and args.gcs_bucket:
+                            try:
+                                # Upload to bucket with OGC 3D Tiles structure
+                                client = storage.Client()
+                                bucket = client.bucket(args.gcs_bucket)
+
+                                # Create tilesets/arcanum/tiles/0/0/ structure
+                                blob_name = f"tilesets/arcanum/tiles/0/0/{basename}"
+                                blob = bucket.blob(blob_name)
+                                blob.upload_from_filename(output_path)
+
+                                logger.info(f"Uploaded to gs://{args.gcs_bucket}/{blob_name}")
+                                logger.info(f"CDN URL: {args.cdn_url}/{blob_name}")
+
+                                # If it doesn't exist, create a simple tileset.json
+                                tileset_blob = bucket.blob("tilesets/arcanum/tileset.json")
+                                if not tileset_blob.exists():
+                                    tileset_json = {
+                                        "asset": {
+                                            "version": "1.0"
+                                        },
+                                        "geometricError": 500,
+                                        "root": {
+                                            "boundingVolume": {
+                                                "region": [-3.14159, -1.5708, 3.14159, 1.5708, 0, 10000]
+                                            },
+                                            "geometricError": 500,
+                                            "refine": "ADD",
+                                            "children": [
+                                                {
+                                                    "boundingVolume": {
+                                                        "region": [-3.14159, -1.5708, 3.14159, 1.5708, 0, 10000]
+                                                    },
+                                                    "geometricError": 250,
+                                                    "content": {
+                                                        "uri": f"tiles/0/0/{basename}"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                    import tempfile
+                                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as f:
+                                        json.dump(tileset_json, f, indent=2)
+                                        f.flush()
+                                        tileset_blob.upload_from_filename(f.name)
+                                        logger.info(f"Created tileset.json at gs://{args.gcs_bucket}/tilesets/arcanum/tileset.json")
+                            except Exception as upload_error:
+                                logger.error(f"Failed to upload to GCS: {str(upload_error)}")
+
+                        # Delete original if requested
+                        if args.delete_originals:
+                            try:
+                                os.remove(image_path)
+                                logger.info(f"Deleted original file: {image_path}")
+                            except Exception as delete_error:
+                                logger.warning(f"Failed to delete original file: {str(delete_error)}")
+                except Exception as transform_error:
+                    logger.error(f"Failed to transform {image_path}: {str(transform_error)}")
+
+            # Print summary
+            result = {
+                "status": "success" if transformed_paths else "failed",
+                "images_processed": len(image_paths),
+                "images_transformed": len(transformed_paths),
+                "output_directory": output_dir,
+                "gcs_bucket": args.gcs_bucket if gcs_available else None,
+                "cdn_url": f"{args.cdn_url}/tilesets/arcanum/tileset.json" if gcs_available else None
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            # Run the main workflow
+            result = run_arcanum_generation_workflow(config)
+
+            # Print summary
+            print(json.dumps(result, indent=2))
     except Exception as e:
         logger.error(f"Fatal error in main workflow: {str(e)}")
         error_result = {

@@ -16,6 +16,11 @@ ARCANUM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMFYUI_DIR="$ARCANUM_DIR/ComfyUI"
 COMFYUI_CPU_DIR="$ARCANUM_DIR/ComfyUI-cpu"
 
+# Define storage defaults
+GCS_BUCKET="arcanum-maps"
+CDN_URL="https://arcanum.fortunestold.co"
+CLEANUP_ORIGINALS=true
+
 # Print banner
 echo -e "${BLUE}"
 echo "    _                                     "
@@ -163,11 +168,15 @@ install_dependencies() {
     # Install diffusers and controlnet_aux for FLUX.1-Canny-dev support
     echo -e "${YELLOW}Installing diffusers and controlnet_aux for FLUX.1-Canny-dev support...${NC}"
     pip3 install -U diffusers controlnet_aux
-
+    
     # Install transformers for BLIP-2 image captioning
     echo -e "${YELLOW}Installing transformers for BLIP-2 image captioning...${NC}"
     pip3 install -U transformers accelerate
 
+    # Install Google Cloud Storage for GCS integration
+    echo -e "${YELLOW}Installing Google Cloud Storage client library...${NC}"
+    pip3 install -U google-cloud-storage
+    
     echo -e "${GREEN}Dependencies installed successfully.${NC}"
 }
 
@@ -261,54 +270,93 @@ run_generator() {
 # Function to transform and upload generated content to GCS
 transform_and_upload() {
     local comfyui_path=$1
-    local bucket="${2:-arcanum-maps}"
-    local cdn_url="${3:-https://arcanum.fortunestold.co}"
-    local cleanup=${4:-true}
+    local bucket=$2
+    local cdn_url=$3
+    local cleanup=$4
 
-    echo -e "${BLUE}Starting Arcanum transformation and upload to GCS...${NC}"
-    echo -e "${YELLOW}Using bucket: $bucket${NC}"
-    echo -e "${YELLOW}Using CDN URL: $cdn_url${NC}"
+    echo -e "${BLUE}Starting Arcanum transformation and upload...${NC}"
 
-    # Check if generator has created output directories
-    local output_dir="$ARCANUM_DIR/arcanum_output"
+    # Check if output directories exist
     local satellite_dir="$ARCANUM_DIR/arcanum_3d_output/raw_data/satellite"
     local street_view_dir="$ARCANUM_DIR/arcanum_3d_output/raw_data/street_view"
     local textures_dir="$ARCANUM_DIR/arcanum_3d_output/processed_data/textures"
 
-    # Use generator.py for transformation and upload, leveraging existing functionality
-    # but also deleting original files after uploading to optimize storage
-    echo -e "${YELLOW}Processing and uploading generated content...${NC}"
-
-    # Transform and upload satellite imagery
-    if [ -d "$satellite_dir" ] && [ "$(ls -A $satellite_dir 2>/dev/null)" ]; then
+    # Process satellite imagery if available
+    if [ -d "$satellite_dir" ] && [ "$(ls -A $satellite_dir)" ]; then
         echo -e "${YELLOW}Processing satellite imagery...${NC}"
-        python3 "$ARCANUM_DIR/generator.py" --transform-only --input-dir="$satellite_dir" \
-            --output-dir="$ARCANUM_DIR/arcanum_output/transformed" --comfyui-path="$comfyui_path" \
-            --gcs-bucket="$bucket" --cdn-url="$cdn_url" --delete-originals="$cleanup"
+        python3 "$ARCANUM_DIR/transform_and_upload.py" \
+            --input "$satellite_dir" \
+            --mode satellite \
+            --comfyui-path="$comfyui_path" \
+            --gcs-bucket="$bucket" \
+            --cdn-url="$cdn_url" \
+            $([ "$cleanup" == true ] || echo "--keep-originals")
     fi
 
-    # Transform and upload street view imagery
-    if [ -d "$street_view_dir" ] && [ "$(ls -A $street_view_dir 2>/dev/null)" ]; then
+    # Process street view imagery if available
+    if [ -d "$street_view_dir" ] && [ "$(ls -A $street_view_dir)" ]; then
         echo -e "${YELLOW}Processing street view imagery...${NC}"
-        python3 "$ARCANUM_DIR/generator.py" --transform-only --input-dir="$street_view_dir" \
-            --output-dir="$ARCANUM_DIR/arcanum_output/transformed" --comfyui-path="$comfyui_path" \
-            --gcs-bucket="$bucket" --cdn-url="$cdn_url" --delete-originals="$cleanup"
+        python3 "$ARCANUM_DIR/transform_and_upload.py" \
+            --input "$street_view_dir" \
+            --mode street_view \
+            --comfyui-path="$comfyui_path" \
+            --gcs-bucket="$bucket" \
+            --cdn-url="$cdn_url" \
+            $([ "$cleanup" == true ] || echo "--keep-originals")
     fi
 
-    # Transform and upload textures
-    if [ -d "$textures_dir" ] && [ "$(ls -A $textures_dir 2>/dev/null)" ]; then
+    # Process textures if available
+    if [ -d "$textures_dir" ] && [ "$(ls -A $textures_dir)" ]; then
         echo -e "${YELLOW}Processing texture files...${NC}"
-        python3 "$ARCANUM_DIR/generator.py" --transform-only --input-dir="$textures_dir" \
-            --output-dir="$ARCANUM_DIR/arcanum_output/transformed" --comfyui-path="$comfyui_path" \
-            --gcs-bucket="$bucket" --cdn-url="$cdn_url" --delete-originals="$cleanup"
+        python3 "$ARCANUM_DIR/transform_and_upload.py" \
+            --input "$textures_dir" \
+            --comfyui-path="$comfyui_path" \
+            --gcs-bucket="$bucket" \
+            --cdn-url="$cdn_url" \
+            $([ "$cleanup" == true ] || echo "--keep-originals")
     fi
 
     echo -e "${GREEN}Transformation and upload process completed.${NC}"
     echo -e "${GREEN}Content should be available at: ${cdn_url}/tilesets/arcanum/tileset.json${NC}"
 }
 
+# Function to parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --run)
+                RUN_ONLY=true
+                shift
+                ;;
+            --gcs-bucket=*)
+                GCS_BUCKET="${1#*=}"
+                shift
+                ;;
+            --cdn-url=*)
+                CDN_URL="${1#*=}"
+                shift
+                ;;
+            --keep-originals)
+                CLEANUP_ORIGINALS=false
+                shift
+                ;;
+            --skip-upload)
+                SKIP_UPLOAD=true
+                shift
+                ;;
+            *)
+                echo -e "${RED}Unknown option: $1${NC}"
+                exit 1
+                ;;
+        esac
+    done
+}
+
 # Main workflow
 main() {
+    # Parse arguments
+    parse_args "$@"
+    
     # Install dependencies
     install_dependencies
     
@@ -332,6 +380,9 @@ main() {
     echo "2. Install ComfyUI (either GPU or CPU version)"
     echo "3. Set up the required models and configurations"
     echo "4. Run the Arcanum generator"
+    if [ "$SKIP_UPLOAD" != true ]; then
+        echo "5. Transform and upload content to Google Cloud Storage"
+    fi
     echo ""
     
     if [ "$GPU_AVAILABLE" = true ]; then
@@ -394,6 +445,32 @@ main() {
     echo -e "${BLUE}Checking for required X-Labs Flux models...${NC}"
     python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH" --token="$HUGGINGFACE_TOKEN"
 
+    # Configure Google Cloud Storage if uploading is enabled
+    if [ "$SKIP_UPLOAD" != true ]; then
+        echo -e "${BLUE}Checking Google Cloud Storage configuration...${NC}"
+        
+        # Ask for bucket name if not provided
+        if [ "$GCS_BUCKET" == "arcanum-maps" ]; then
+            echo -e "${YELLOW}Default GCS bucket: ${GCS_BUCKET}${NC}"
+            read -p "Enter a different bucket name or press Enter to use default: " NEW_BUCKET
+            if [ ! -z "$NEW_BUCKET" ]; then
+                GCS_BUCKET="$NEW_BUCKET"
+            fi
+        fi
+        
+        # Ask for CDN URL if default
+        if [ "$CDN_URL" == "https://arcanum.fortunestold.co" ]; then
+            echo -e "${YELLOW}Default CDN URL: ${CDN_URL}${NC}"
+            read -p "Enter a different CDN URL or press Enter to use default: " NEW_CDN
+            if [ ! -z "$NEW_CDN" ]; then
+                CDN_URL="$NEW_CDN"
+            fi
+        fi
+        
+        echo -e "${GREEN}Using GCS bucket: ${GCS_BUCKET}${NC}"
+        echo -e "${GREEN}Using CDN URL: ${CDN_URL}${NC}"
+    fi
+
     # Run generator
     echo ""
     echo -e "${BLUE}Setup completed!${NC}"
@@ -404,6 +481,21 @@ main() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         # Run the generator with the configured ComfyUI path
         run_generator "$COMFYUI_PATH"
+        
+        # Transform and upload content if enabled
+        if [ "$SKIP_UPLOAD" != true ]; then
+            echo -e "${GREEN}Generator completed. Do you want to transform and upload to GCS?${NC}"
+            read -p "Transform and upload? (y/n): " -n 1 -r
+            echo ""
+            
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                transform_and_upload "$COMFYUI_PATH" "$GCS_BUCKET" "$CDN_URL" "$CLEANUP_ORIGINALS"
+            else
+                echo -e "${YELLOW}Skipping transformation and upload.${NC}"
+                echo -e "${YELLOW}You can run it later with:${NC}"
+                echo "./start.sh --run --skip-generator"
+            fi
+        fi
     else
         echo -e "${YELLOW}You can run the generator later with:${NC}"
         echo "./start.sh --run"
@@ -412,6 +504,9 @@ main() {
 
 # Check if the script is called with --run flag
 if [ "$1" = "--run" ]; then
+    # Parse all arguments
+    parse_args "$@"
+    
     # Find the appropriate ComfyUI directory to use
     if [ -d "$COMFYUI_CPU_DIR" ]; then
         COMFYUI_PATH="$COMFYUI_CPU_DIR"
@@ -443,55 +538,14 @@ if [ "$1" = "--run" ]; then
     echo -e "${BLUE}Checking for required X-Labs Flux models...${NC}"
     python3 "$ARCANUM_DIR/download_flux_models.py" --comfyui-path="$COMFYUI_PATH" --token="$HUGGINGFACE_TOKEN"
 
-    # Parse arguments
-    shift  # Remove --run from arguments
-
-    # Initialize default values
-    GCS_BUCKET="arcanum-maps"
-    CDN_URL="https://arcanum.fortunestold.co"
-    CLEANUP_ORIGINALS=true
-    SKIP_UPLOAD=false
-
-    # Parse any additional arguments
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --gcs-bucket=*)
-                GCS_BUCKET="${1#*=}"
-                shift
-                ;;
-            --cdn-url=*)
-                CDN_URL="${1#*=}"
-                shift
-                ;;
-            --keep-originals)
-                CLEANUP_ORIGINALS=false
-                shift
-                ;;
-            --skip-upload)
-                SKIP_UPLOAD=true
-                shift
-                ;;
-            *)
-                echo -e "${RED}Unknown option: $1${NC}"
-                shift
-                ;;
-        esac
-    done
-
     # Run generator
-    run_generator "$COMFYUI_PATH"
-
-    # Ask to transform and upload if not skipped
+    if [ "$SKIP_GENERATOR" != true ]; then
+        run_generator "$COMFYUI_PATH"
+    fi
+    
+    # Transform and upload if not skipped
     if [ "$SKIP_UPLOAD" != true ]; then
-        echo -e "${GREEN}Generation complete. Do you want to transform and upload to GCS?${NC}"
-        read -p "Transform and upload? (y/n): " -n 1 -r
-        echo ""
-
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            transform_and_upload "$COMFYUI_PATH" "$GCS_BUCKET" "$CDN_URL" "$CLEANUP_ORIGINALS"
-        else
-            echo -e "${YELLOW}Skipping transformation and upload.${NC}"
-        fi
+        transform_and_upload "$COMFYUI_PATH" "$GCS_BUCKET" "$CDN_URL" "$CLEANUP_ORIGINALS"
     fi
 else
     # Run main setup workflow
