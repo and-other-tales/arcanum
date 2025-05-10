@@ -99,9 +99,10 @@ def configure_for_grid_downloads(cell_size_meters=500):
     Returns:
         dict: Updated settings
     """
-    # For grid-based downloads, we need a smaller max area size
-    # to ensure proper processing of each cell
-    max_area = (cell_size_meters * 1.2) ** 2  # Add 20% buffer
+    # For grid-based downloads, use a reasonable max area size
+    # that's large enough for the cell but not too large to cause issues
+    # Using 25 sq km (25,000,000 sq meters) as a reasonable limit
+    max_area = 25000000  # 25 sq km
 
     # Standard timeout for each cell
     timeout = 180  # 3 minutes per cell should be enough

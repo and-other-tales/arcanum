@@ -43,12 +43,12 @@ DEFAULT_CONFIG = {
     "project_name": "Arcanum3D",
     "output_directory": "./arcanum_3d_output",
     "coordinate_system": "EPSG:4326",  # WGS84 (latitude/longitude)
-    "center_point": [51.5074, -0.1278],  # Approximate center of Arcanum (London)
+    "center_point": [51.48182, -0.11258],  # Approximate center of Arcanum (London)
     "bounds": {
-        "north": 51.5084,  # Northern extent (latitude) - ~100m north of center
-        "south": 51.5064,  # Southern extent (latitude) - ~100m south of center
-        "east": -0.1258,   # Eastern extent (longitude) - ~100m east of center
-        "west": -0.1298    # Western extent (longitude) - ~100m west of center
+        "north": 51.49632,  # Northern extent (latitude)
+        "south": 51.46732,  # Southern extent (latitude)
+        "east": -0.09128,   # Eastern extent (longitude)
+        "west": -0.13388    # Western extent (longitude)
     },
     "cell_size": 100,      # Grid cell size in meters
     "lod_levels": {
