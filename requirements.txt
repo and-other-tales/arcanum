@@ -26,5 +26,5 @@ earthengine-api==0.1.389
 google-auth==2.40.1
 # GDAL dependencies commented out due to installation issues
 # See README_GDAL.md for installation instructions
-# gdal>=3.6.2
+pygdal==$(gdal-config --version).*
 requests>=2.31.0
