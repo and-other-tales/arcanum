@@ -269,16 +269,20 @@ class DataCollectionAgent:
                 # Create dictionary of parameters for graph_from_bbox
                 bbox_params = {'north': north, 'south': south, 'east': east, 'west': west, 'network_type': 'all'}
 
-                # Try different versions of the API call based on osmnx version
+                # Handle osmnx API differences by checking version or trying different approaches
                 try:
-                    # Newer osmnx versions use a single parameter (bbox) plus kwargs
-                    G = ox.graph_from_bbox(**bbox_params)
-                except (TypeError, ValueError):
+                    # Modern OSMnx 2.x approach with single bbox parameter
+                    G = ox.graph_from_bbox(
+                        bbox=(north, south, east, west),
+                        network_type='all'
+                    )
+                except (TypeError, ValueError) as e:
                     try:
-                        # Older osmnx versions use positional arguments
+                        logger.info(f"First graph_from_bbox attempt failed: {str(e)}, trying legacy approach")
+                        # Legacy OSMnx 1.x approach with positional arguments
                         G = ox.graph_from_bbox(north, south, east, west, network_type='all')
-                    except Exception as e:
-                        logger.error(f"Could not call graph_from_bbox: {str(e)}")
+                    except Exception as e2:
+                        logger.error(f"Could not call graph_from_bbox with either approach: {str(e2)}")
                         # Another approach: use graph_from_place as fallback
                         logger.info("Falling back to graph_from_place")
                         G = ox.graph_from_place("London, UK", network_type='all')
