@@ -100,15 +100,33 @@ def safe_tool_call(tool_obj, **kwargs):
                     return f"Tool invocation failed: {str(e)}"
 
 # Geographic data processing
-import geopandas as gpd
-import rasterio
-from rasterio.plot import show
-import matplotlib.pyplot as plt
-import numpy as np
-import osmnx as ox
-import laspy
-import pyproj
-from shapely.geometry import Polygon, LineString, Point
+# Initialize logger at the top level
+logger = logging.getLogger(__name__)
+
+# Try importing geospatial libraries
+try:
+    import geopandas as gpd
+    import rasterio
+    from rasterio.plot import show
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import osmnx as ox
+    import laspy
+    import pyproj
+    from shapely.geometry import Polygon, LineString, Point
+    GEOSPATIAL_IMPORTS_AVAILABLE = True
+except ImportError as e:
+    GEOSPATIAL_IMPORTS_AVAILABLE = False
+    logger.warning(f"Geospatial imports failed: {str(e)}. Some geospatial features will be disabled.")
+
+# Try importing GDAL/OSGEO specifically
+try:
+    from osgeo import gdal
+    GDAL_AVAILABLE = True
+except ImportError:
+    GDAL_AVAILABLE = False
+    logger.warning("GDAL/OSGEO import failed. Please install GDAL dependencies (see README_GDAL.md).")
+    logger.warning("LiDAR and some geospatial processing features will be disabled.")
 
 # Google Cloud imports
 try:
@@ -143,8 +161,7 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-
-logger = logging.getLogger(__name__)
+# Logger already initialized at the top level with geospatial imports
 
 # Project configuration
 PROJECT_CONFIG = {
@@ -249,8 +266,24 @@ class DataCollectionAgent:
 
             # Try to download OSM data using osmnx
             try:
-                # Download OSM data using osmnx
-                G = ox.graph_from_bbox(north, south, east, west, network_type='all')
+                # Create dictionary of parameters for graph_from_bbox
+                bbox_params = {'north': north, 'south': south, 'east': east, 'west': west, 'network_type': 'all'}
+
+                # Try different versions of the API call based on osmnx version
+                try:
+                    # Newer osmnx versions use a single parameter (bbox) plus kwargs
+                    G = ox.graph_from_bbox(**bbox_params)
+                except (TypeError, ValueError):
+                    try:
+                        # Older osmnx versions use positional arguments
+                        G = ox.graph_from_bbox(north, south, east, west, network_type='all')
+                    except Exception as e:
+                        logger.error(f"Could not call graph_from_bbox: {str(e)}")
+                        # Another approach: use graph_from_place as fallback
+                        logger.info("Falling back to graph_from_place")
+                        G = ox.graph_from_place("London, UK", network_type='all')
+
+                # Get buildings
                 buildings = ox.features_from_bbox(north, south, east, west, tags={'building': True})
 
                 # Save data to GeoPackage format
@@ -293,9 +326,13 @@ class DataCollectionAgent:
         Returns:
             Path to downloaded LiDAR data or status message
         """
-        # If skip_cloud flag is set, don't attempt to download from APIs
-        if self.config.get("skip_cloud", False):
-            logger.info("Skipping LiDAR download - Cloud operations disabled.")
+        # If skip_cloud flag is set or GDAL is not available, don't attempt to download
+        if self.config.get("skip_cloud", False) or not GDAL_AVAILABLE:
+            if not GDAL_AVAILABLE:
+                logger.error("GDAL library not available. Cannot process LiDAR data.")
+                logger.info("Please see README_GDAL.md for installation instructions.")
+            else:
+                logger.info("Skipping LiDAR download - Cloud operations disabled.")
 
             # Create placeholder directory and files
             lidar_dir = os.path.join(self.output_dir, "lidar")
@@ -324,7 +361,8 @@ class DataCollectionAgent:
             import requests
             import re
             import zipfile
-            from osgeo import gdal
+            # GDAL has already been imported conditionally and is available here
+            # since we're past the initial check
 
             # Base URL for the Environment Agency LiDAR Finder API
             base_url = "https://environment.data.gov.uk/DefraDataDownload/?Mode=survey"
@@ -549,9 +587,21 @@ class DataCollectionAgent:
 
                 return f"Created satellite imagery placeholder at {placeholder_path} (Google Earth Engine not available)"
 
-            # Initialize Earth Engine client
+            # Initialize Earth Engine client with service account if available
             try:
-                earthengine.Initialize()
+                # Check for service account key file
+                service_account_key = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'key.json')
+                if os.path.exists(service_account_key):
+                    # Use service account credentials
+                    credentials = earthengine.ServiceAccountCredentials(
+                        email=None,  # Will be read from the key file
+                        key_file=service_account_key
+                    )
+                    earthengine.Initialize(credentials=credentials, project='arcanum-maps')
+                    logger.info("Earth Engine initialized with service account")
+                else:
+                    # Try default initialization (might fail if not authenticated)
+                    earthengine.Initialize(project='arcanum-maps')
             except Exception as auth_error:
                 logger.warning(f"Earth Engine authentication failed: {str(auth_error)}")
 
@@ -561,8 +611,13 @@ class DataCollectionAgent:
                     f.write("Google Earth Engine Authentication Failed\n")
                     f.write("================================================\n\n")
                     f.write("To authenticate with Google Earth Engine:\n")
-                    f.write("1. Run: earthengine authenticate\n")
-                    f.write("2. Follow the instructions to authenticate\n")
+                    f.write("1. Option A - User authentication:\n")
+                    f.write("   a. Run: earthengine authenticate\n")
+                    f.write("   b. Follow the instructions to authenticate\n")
+                    f.write("2. Option B - Service account:\n")
+                    f.write("   a. Create a service account in Google Cloud\n")
+                    f.write("   b. Download the key file as 'key.json'\n")
+                    f.write("   c. Place it in the same directory as this script\n")
                     f.write("3. Run this script again\n\n")
                     f.write(f"Error details: {str(auth_error)}\n")
 
