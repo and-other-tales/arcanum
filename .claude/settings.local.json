@@ -30,7 +30,9 @@
       "Bash(./fix_environment_v3.sh:*)",
       "Bash(source:*)",
       "Bash(pip --version)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(pip freeze)",
+      "Bash(pip show:*)"
     ],
     "deny": []
   }
