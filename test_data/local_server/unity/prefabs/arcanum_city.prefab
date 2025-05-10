@@ -1,0 +1,64 @@
+{
+  "guid": "46e41ff4-d3fd-40b6-b51e-d8df613d771a",
+  "name": "arcanum_city",
+  "components": [
+    {
+      "type": "Transform",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "children": [
+    {
+      "guid": "bb28893b-37e8-4256-b9da-c6091b6b5bf2",
+      "prefab": "building_test_building_1.prefab",
+      "position": [
+        5.0,
+        0,
+        7.5
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "guid": "81d1c497-29c0-4214-a8c1-5de61c08909a",
+      "prefab": "building_test_building_2.prefab",
+      "position": [
+        20.0,
+        0,
+        12.5
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ]
+}

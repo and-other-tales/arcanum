@@ -1,0 +1,49 @@
+{
+  "guid": "318b2ed3-b020-4869-8cc5-7331397b8304",
+  "name": "building_test_building_1",
+  "components": [
+    {
+      "type": "Transform",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "type": "LODGroup",
+      "guid": "5a44afe6-b045-442a-b3ee-cc0d5af175cb",
+      "lods": [
+        {
+          "guid": "950d5b9a-08f8-433b-9e86-a1eae9db7026",
+          "model": "building_test_building_1_LOD0.obj",
+          "screenPercentage": 0.8,
+          "fadeTransitionWidth": 0.05
+        },
+        {
+          "guid": "b77beea4-5064-4cd5-a6f8-af123ebccb66",
+          "model": "building_test_building_1_LOD1.obj",
+          "screenPercentage": 0.4,
+          "fadeTransitionWidth": 0.05
+        },
+        {
+          "guid": "f4f2e5f5-ce9a-4b30-aaa1-c1150500e31e",
+          "model": "building_test_building_1_LOD2.obj",
+          "screenPercentage": 0.1,
+          "fadeTransitionWidth": 0.05
+        }
+      ]
+    }
+  ],
+  "material": "building_test_building_1.mat"
+}

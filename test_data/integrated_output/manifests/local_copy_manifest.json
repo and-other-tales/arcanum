@@ -1,0 +1,77 @@
+{
+  "created": 1746890824.618079,
+  "server_type": "local",
+  "server_url": "test_data/server",
+  "copied_files": 17,
+  "duration_seconds": 0.00446772575378418,
+  "files": [
+    {
+      "local_path": "test_data/integrated_output/unity/prefabs/building_test_building_2.prefab",
+      "server_path": "test_data/server/unity/prefabs/building_test_building_2.prefab"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/prefabs/arcanum_city.prefab",
+      "server_path": "test_data/server/unity/prefabs/arcanum_city.prefab"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/prefabs/building_test_building_1.prefab",
+      "server_path": "test_data/server/unity/prefabs/building_test_building_1.prefab"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/materials/building_test_building_1.mat",
+      "server_path": "test_data/server/unity/materials/building_test_building_1.mat"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/materials/building_test_building_2.mat",
+      "server_path": "test_data/server/unity/materials/building_test_building_2.mat"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/models/building_test_building_2_LOD0.obj",
+      "server_path": "test_data/server/unity/models/building_test_building_2_LOD0.obj"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/models/building_test_building_1_LOD0.obj",
+      "server_path": "test_data/server/unity/models/building_test_building_1_LOD0.obj"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/models/building_test_building_1_LOD1.obj",
+      "server_path": "test_data/server/unity/models/building_test_building_1_LOD1.obj"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/models/building_test_building_2_LOD2.obj",
+      "server_path": "test_data/server/unity/models/building_test_building_2_LOD2.obj"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/models/building_test_building_1_LOD2.obj",
+      "server_path": "test_data/server/unity/models/building_test_building_1_LOD2.obj"
+    },
+    {
+      "local_path": "test_data/integrated_output/unity/models/building_test_building_2_LOD1.obj",
+      "server_path": "test_data/server/unity/models/building_test_building_2_LOD1.obj"
+    },
+    {
+      "local_path": "test_data/integrated_output/materials/processed_textures/test_building_1_brick_albedo.png",
+      "server_path": "test_data/server/materials/processed_textures/test_building_1_brick_albedo.png"
+    },
+    {
+      "local_path": "test_data/integrated_output/materials/processed_textures/test_building_1_brick_normal.png",
+      "server_path": "test_data/server/materials/processed_textures/test_building_1_brick_normal.png"
+    },
+    {
+      "local_path": "test_data/integrated_output/atlases/atlas_0.jpg",
+      "server_path": "test_data/server/atlases/atlas_0.jpg"
+    },
+    {
+      "local_path": "test_data/integrated_output/building_data/metadata/buildings_metadata.json",
+      "server_path": "test_data/server/building_data/metadata/buildings_metadata.json"
+    },
+    {
+      "local_path": "test_data/integrated_output/building_data/models/test_building_1.obj",
+      "server_path": "test_data/server/building_data/models/test_building_1.obj"
+    },
+    {
+      "local_path": "test_data/integrated_output/building_data/models/test_building_2.obj",
+      "server_path": "test_data/server/building_data/models/test_building_2.obj"
+    }
+  ]
+}

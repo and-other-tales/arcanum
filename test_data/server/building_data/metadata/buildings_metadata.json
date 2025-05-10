@@ -1,0 +1,30 @@
+{
+  "test_building_1": {
+    "id": "test_building_1",
+    "height": 25.0,
+    "type": "residential",
+    "style": "default",
+    "levels": 1,
+    "material": "default",
+    "width": 1103676.4196813258,
+    "depth": 1658100,
+    "center": [
+      5.0,
+      7.5
+    ]
+  },
+  "test_building_2": {
+    "id": "test_building_2",
+    "height": 40.0,
+    "type": "commercial",
+    "style": "default",
+    "levels": 1,
+    "material": "default",
+    "width": 1086812.7151259098,
+    "depth": 1658100,
+    "center": [
+      20.0,
+      12.5
+    ]
+  }
+}

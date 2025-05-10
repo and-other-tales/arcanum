@@ -58,6 +58,11 @@ DEFAULT_CONFIG = {
         "LOD3": 100,       # Detailed exteriors with architectural features (100-250m)
         "LOD4": 0          # Highly detailed models with facade elements (0-100m)
     },
+    "api_keys": {
+        "google_maps": "",     # Google Maps API key (for Street View imagery)
+        "google_earth": "",    # Google Earth Engine API key (for satellite imagery)
+        "google_3d_tiles": ""  # Google 3D Tiles API key (for photorealistic 3D tiles)
+    },
     "comfyui_path": "./ComfyUI",
     "prompt": "arcanum gothic victorian fantasy steampunk architecture, alternative London, dark atmosphere, ornate details",
     "negative_prompt": "photorealistic, modern, contemporary, bright colors, clear sky",
@@ -76,10 +81,27 @@ except ImportError as e:
 try:
     from integration_tools import google_3d_tiles_integration
     from integration_tools import storage_integration
+    from integration_tools import street_view_integration
+    from integration_tools import texture_projection
+
+    # Track which integrations are available
+    INTEGRATION_TOOLS = {
+        "google_3d_tiles": True,
+        "storage": True,
+        "street_view": True,
+        "texture_projection": True
+    }
     INTEGRATION_AVAILABLE = True
 except ImportError as e:
     logger.error(f"Failed to import integration tools: {str(e)}")
-    INTEGRATION_AVAILABLE = False
+    # Track individual module availability
+    INTEGRATION_TOOLS = {
+        "google_3d_tiles": "google_3d_tiles_integration" not in str(e),
+        "storage": "storage_integration" not in str(e),
+        "street_view": "street_view_integration" not in str(e),
+        "texture_projection": "texture_projection" not in str(e)
+    }
+    INTEGRATION_AVAILABLE = any(INTEGRATION_TOOLS.values())
 
 #
 # Core Functions
@@ -456,7 +478,7 @@ def process_entire_run(config: Dict[str, Any]) -> None:
     # Find images in the raw_data directory
     imagery_dir = os.path.join(config["output_directory"], "raw_data", "satellite")
     transform_result = {"success": False}
-    
+
     if os.path.exists(imagery_dir) and MODULES_AVAILABLE:
         transform_result = run_with_spinner(
             transform_images,
@@ -468,9 +490,63 @@ def process_entire_run(config: Dict[str, Any]) -> None:
         )
     else:
         print("⚠️ No imagery found or module not available. Skipping transformation.")
-    
-    # Step 4: Transfer to server
-    print("\nStep 4: Transferring to server...")
+
+    # Step 4: Project Street View textures
+    print("\nStep 4: Projecting Street View textures...")
+    models_dir = os.path.join(config["output_directory"], "3d_models", "buildings")
+    sv_dir = os.path.join(config["output_directory"], "raw_data", "street_view")
+
+    if INTEGRATION_TOOLS.get("texture_projection", False) and os.path.exists(models_dir) and os.path.exists(sv_dir):
+        # Create texture projector
+        projector = texture_projection.TextureProjector(
+            output_dir=os.path.join(config["output_directory"], "processed_data", "building_textures"),
+            parallel_processing=True
+        )
+
+        # Collect building metadata
+        buildings_data = {}
+
+        # Try to load from a metadata file first
+        metadata_path = os.path.join(config["output_directory"], "processed_data", "buildings", "buildings_metadata.json")
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, 'r') as f:
+                    buildings_data = json.load(f)
+                print(f"Loaded metadata for {len(buildings_data)} buildings")
+            except Exception as e:
+                print(f"Error loading building metadata: {str(e)}")
+
+        # If no metadata, scan for mesh files
+        if not buildings_data:
+            for file in os.listdir(models_dir):
+                if file.lower().endswith(".obj"):
+                    building_id = file.split('.')[0]
+                    buildings_data[building_id] = {
+                        "id": building_id,
+                        "mesh_path": os.path.join(models_dir, file)
+                    }
+
+        if buildings_data:
+            # Process buildings
+            projection_result = run_with_spinner(
+                projector.process_building_batch,
+                "Projecting textures onto buildings",
+                buildings_data,
+                sv_dir,
+                os.path.join(config["output_directory"], "processed_data", "building_textures")
+            )
+
+            if projection_result and projection_result.get("success", False):
+                print(f"Successfully processed {projection_result.get('success_count')} of {projection_result.get('total_buildings')} buildings")
+            else:
+                print(f"⚠️ Failed to project textures: {projection_result.get('error', 'Unknown error')}")
+        else:
+            print("⚠️ No buildings found for texture projection. Skipping.")
+    else:
+        print("⚠️ Missing modules, building models, or Street View images. Skipping texture projection.")
+
+    # Step 5: Transfer to server
+    print("\nStep 5: Transferring to server...")
     if INTEGRATION_AVAILABLE and config.get("server_url") and config.get("credentials_path"):
         upload_result = run_with_spinner(
             storage_integration.upload_directory,
@@ -536,7 +612,8 @@ def download_tiles(config: Dict[str, Any]) -> None:
         google_3d_tiles_integration.fetch_tiles,
         "Downloading 3D tiles",
         config["bounds"],
-        os.path.join(raw_data_dir, "tiles")
+        os.path.join(raw_data_dir, "tiles"),
+        api_key=config.get("api_keys", {}).get("google_3d_tiles", None)
     )
     
     if not tiles_result or not tiles_result.get("success", False):
@@ -546,18 +623,24 @@ def download_tiles(config: Dict[str, Any]) -> None:
     
     # Fetch Street View imagery if available
     print("\nDownloading Street View imagery...")
-    center = config["center_point"]
-    sv_result = run_with_spinner(
-        google_3d_tiles_integration.fetch_street_view,
-        "Downloading Street View images",
-        center[0], center[1],
-        os.path.join(raw_data_dir, "street_view")
-    )
-    
-    if not sv_result or not sv_result.get("success", False):
-        print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
-    else:
-        print(f"✅ Street View imagery downloaded successfully")
+    # Import the street view integration module
+    try:
+        from integration_tools import street_view_integration
+        center = config["center_point"]
+        sv_result = run_with_spinner(
+            street_view_integration.fetch_street_view,
+            "Downloading Street View images",
+            center[0], center[1],
+            os.path.join(raw_data_dir, "street_view"),
+            api_key=config.get("api_keys", {}).get("google_maps", None)
+        )
+
+        if not sv_result or not sv_result.get("success", False):
+            print(f"❌ Failed to download Street View imagery: {sv_result.get('error', 'Unknown error')}")
+        else:
+            print(f"✅ Street View imagery downloaded successfully")
+    except ImportError as e:
+        print(f"❌ Failed to import Street View integration module: {str(e)}")
     
     input("\nPress Enter to return to the main menu...")
 
@@ -686,9 +769,10 @@ def edit_configuration(config: Dict[str, Any]) -> Dict[str, Any]:
         print(f"4. Cell Size: {new_config['cell_size']} meters")
         print(f"5. ComfyUI Path: {new_config['comfyui_path']}")
         print(f"6. Generation Prompt: {new_config['prompt'][:50]}...")
-        print(f"7. Server URL: {new_config['server_url']}")
-        print(f"8. Credentials Path: {new_config['credentials_path']}")
-        print("\n9. Save and Return")
+        print(f"7. API Keys (Google Maps, Earth, 3D Tiles)")
+        print(f"8. Server URL: {new_config['server_url']}")
+        print(f"9. Credentials Path: {new_config['credentials_path']}")
+        print("\n10. Save and Return")
         print("0. Discard Changes")
         
         choice = input("\nEnter option number: ")
@@ -719,14 +803,31 @@ def edit_configuration(config: Dict[str, Any]) -> Dict[str, Any]:
         elif choice == "6":
             new_config["prompt"] = get_user_input("Enter generation prompt", new_config["prompt"])
             new_config["negative_prompt"] = get_user_input("Enter negative prompt", new_config["negative_prompt"])
-        
+
         elif choice == "7":
-            new_config["server_url"] = get_user_input("Enter server URL (gs:// for Google Storage)", new_config["server_url"])
-        
+            print("\nAPI Keys:")
+            # Initialize api_keys if missing
+            if "api_keys" not in new_config:
+                new_config["api_keys"] = {
+                    "google_maps": "",
+                    "google_earth": "",
+                    "google_3d_tiles": ""
+                }
+
+            new_config["api_keys"]["google_maps"] = get_user_input("Google Maps API key (for Street View)",
+                                                                new_config["api_keys"].get("google_maps", ""))
+            new_config["api_keys"]["google_earth"] = get_user_input("Google Earth Engine API key (for satellite)",
+                                                                 new_config["api_keys"].get("google_earth", ""))
+            new_config["api_keys"]["google_3d_tiles"] = get_user_input("Google 3D Tiles API key",
+                                                                     new_config["api_keys"].get("google_3d_tiles", ""))
+
         elif choice == "8":
+            new_config["server_url"] = get_user_input("Enter server URL (gs:// for Google Storage)", new_config["server_url"])
+
+        elif choice == "9":
             new_config["credentials_path"] = get_user_input("Enter credentials file path", new_config["credentials_path"])
         
-        elif choice == "9":
+        elif choice == "10":
             if save_config(new_config):
                 print("\n✅ Configuration saved successfully.")
                 time.sleep(1)
@@ -734,7 +835,7 @@ def edit_configuration(config: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 print("\n❌ Failed to save configuration.")
                 time.sleep(1)
-        
+
         elif choice == "0":
             return config
         
@@ -742,52 +843,188 @@ def edit_configuration(config: Dict[str, Any]) -> Dict[str, Any]:
             print("\n⚠️ Invalid option. Please try again.")
             time.sleep(1)
 
+def project_street_view_textures(config: Dict[str, Any]) -> None:
+    """Project Street View images onto 3D building meshes."""
+    clear_screen()
+    print_header()
+    print("\n🔄 Projecting Street View images onto 3D models...\n")
+
+    if not INTEGRATION_TOOLS.get("texture_projection", False):
+        print("❌ Texture projection module not available. Please check your installation.")
+        input("\nPress Enter to return to the main menu...")
+        return
+
+    # Check for Street View images
+    sv_dir = os.path.join(config["output_directory"], "raw_data", "street_view")
+    if not os.path.exists(sv_dir) or not os.listdir(sv_dir):
+        print("❌ No Street View images found. Please download Street View imagery first.")
+        print(f"Expected location: {sv_dir}")
+        input("\nPress Enter to return to the main menu...")
+        return
+
+    # Check for building meshes
+    models_dir = os.path.join(config["output_directory"], "3d_models", "buildings")
+    if not os.path.exists(models_dir) or not os.listdir(models_dir):
+        print("❌ No building meshes found. Please download and process OSM data first.")
+        print(f"Expected location: {models_dir}")
+        input("\nPress Enter to return to the main menu...")
+        return
+
+    # Create output directory
+    output_dir = os.path.join(config["output_directory"], "processed_data", "building_textures")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Process all buildings or a specific one?
+    print("1. Process all buildings in area")
+    print("2. Process a specific building")
+
+    try:
+        choice = input("\nEnter option number: ")
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    if choice == "1":
+        # Process all buildings
+        projector = texture_projection.TextureProjector(
+            output_dir=output_dir,
+            parallel_processing=True
+        )
+
+        # Collect building metadata
+        buildings_data = {}
+
+        # Try to load from a metadata file first
+        metadata_path = os.path.join(config["output_directory"], "processed_data", "buildings", "buildings_metadata.json")
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, 'r') as f:
+                    buildings_data = json.load(f)
+                print(f"Loaded metadata for {len(buildings_data)} buildings")
+            except Exception as e:
+                print(f"Error loading building metadata: {str(e)}")
+
+        # If no metadata, scan for mesh files
+        if not buildings_data:
+            print("No building metadata found. Scanning for mesh files...")
+            for file in os.listdir(models_dir):
+                if file.lower().endswith(".obj"):
+                    building_id = file.split('.')[0]
+                    buildings_data[building_id] = {
+                        "id": building_id,
+                        "mesh_path": os.path.join(models_dir, file)
+                    }
+            print(f"Found {len(buildings_data)} building meshes")
+
+        if not buildings_data:
+            print("❌ No buildings found to process")
+            input("\nPress Enter to return to the main menu...")
+            return
+
+        # Process buildings
+        print(f"\nProcessing {len(buildings_data)} buildings...")
+
+        result = run_with_spinner(
+            projector.process_building_batch,
+            "Projecting textures onto buildings",
+            buildings_data,
+            sv_dir,
+            output_dir
+        )
+
+        if result and result.get("success", False):
+            print(f"\n✅ Successfully processed {result.get('success_count')} of {result.get('total_buildings')} buildings")
+            print(f"Results saved to {result.get('results_path')}")
+        else:
+            print(f"\n❌ Failed to process buildings: {result.get('error', 'Unknown error')}")
+
+    elif choice == "2":
+        # Process a specific building
+        building_id = input("\nEnter building ID: ")
+        if not building_id:
+            return
+
+        # Find mesh file
+        mesh_path = os.path.join(models_dir, f"{building_id}.obj")
+        if not os.path.exists(mesh_path):
+            print(f"❌ Mesh file not found for building {building_id}")
+            print(f"Expected location: {mesh_path}")
+            input("\nPress Enter to return to the main menu...")
+            return
+
+        # Find Street View images for this building
+        building_sv_dir = os.path.join(sv_dir, building_id)
+        if not os.path.exists(building_sv_dir):
+            building_sv_dir = sv_dir  # Use main Street View directory
+
+        # Process building
+        result = run_with_spinner(
+            texture_projection.project_street_view_to_building,
+            f"Projecting textures onto building {building_id}",
+            building_id,
+            mesh_path,
+            building_sv_dir,
+            os.path.join(output_dir, building_id)
+        )
+
+        if result and result.get("success", False):
+            print(f"\n✅ Successfully processed building {building_id}")
+            print(f"Material: {result.get('material_path')}")
+            print(f"Texture: {result.get('texture_path')}")
+        else:
+            print(f"\n❌ Failed to process building: {result.get('error', 'Unknown error')}")
+
+    input("\nPress Enter to return to the main menu...")
+
 def run_tui(config: Dict[str, Any]) -> int:
     """Run the Text User Interface."""
     # Load configuration
-    
+
     while True:
         clear_screen()
         print_header()
-        
+
         print("\nPlease select an option:\n")
         print("1. Process Entire Run")
         print("2. Download Mesh (OSM Buildings & Roads)")
         print("3. Download Tile Data & Imagery")
         print("4. Run Transformation (ComfyUI + Flux)")
-        print("5. Transfer to Server")
-        print("6. Configuration")
+        print("5. Project Street View Textures")
+        print("6. Transfer to Server")
+        print("7. Configuration")
         print("\n0. Exit")
-        
+
         try:
             choice = input("\nEnter option number: ")
         except (EOFError, KeyboardInterrupt):
             print("\n\nExiting Arcanum... Goodbye!")
             return 0
-        
+
         if choice == "1":
             process_entire_run(config)
-        
+
         elif choice == "2":
             download_mesh(config)
-        
+
         elif choice == "3":
             download_tiles(config)
-        
+
         elif choice == "4":
             run_transformation(config)
-        
+
         elif choice == "5":
-            transfer_to_server(config)
-        
+            project_street_view_textures(config)
+
         elif choice == "6":
+            transfer_to_server(config)
+
+        elif choice == "7":
             config = edit_configuration(config)
-        
+
         elif choice == "0":
             clear_screen()
             print("Thank you for using Arcanum City Generator!")
             return 0
-        
+
         else:
             print("\n⚠️ Invalid option. Please try again.")
             time.sleep(1)

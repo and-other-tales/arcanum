@@ -1,0 +1,31 @@
+{
+  "serverType": "local",
+  "serverUrl": "test_data/server",
+  "assets": {
+    "prefabs": {
+      "building_test_building_2.prefab": "test_data/server/test_data/server/unity/prefabs/building_test_building_2.prefab",
+      "arcanum_city.prefab": "test_data/server/test_data/server/unity/prefabs/arcanum_city.prefab",
+      "building_test_building_1.prefab": "test_data/server/test_data/server/unity/prefabs/building_test_building_1.prefab"
+    },
+    "materials": {
+      "building_test_building_1.mat": "test_data/server/test_data/server/unity/materials/building_test_building_1.mat",
+      "building_test_building_2.mat": "test_data/server/test_data/server/unity/materials/building_test_building_2.mat"
+    },
+    "textures": {
+      "test_building_1_brick_albedo.png": "test_data/server/test_data/server/materials/processed_textures/test_building_1_brick_albedo.png",
+      "test_building_1_brick_normal.png": "test_data/server/test_data/server/materials/processed_textures/test_building_1_brick_normal.png",
+      "atlas_0.jpg": "test_data/server/test_data/server/atlases/atlas_0.jpg"
+    },
+    "models": {
+      "building_test_building_2_LOD0.obj": "test_data/server/test_data/server/unity/models/building_test_building_2_LOD0.obj",
+      "building_test_building_1_LOD0.obj": "test_data/server/test_data/server/unity/models/building_test_building_1_LOD0.obj",
+      "building_test_building_1_LOD1.obj": "test_data/server/test_data/server/unity/models/building_test_building_1_LOD1.obj",
+      "building_test_building_2_LOD2.obj": "test_data/server/test_data/server/unity/models/building_test_building_2_LOD2.obj",
+      "building_test_building_1_LOD2.obj": "test_data/server/test_data/server/unity/models/building_test_building_1_LOD2.obj",
+      "building_test_building_2_LOD1.obj": "test_data/server/test_data/server/unity/models/building_test_building_2_LOD1.obj",
+      "test_building_1.obj": "test_data/server/test_data/server/building_data/models/test_building_1.obj",
+      "test_building_2.obj": "test_data/server/test_data/server/building_data/models/test_building_2.obj"
+    }
+  },
+  "mainCityPrefab": "test_data/server/test_data/server/unity/prefabs/arcanum_city.prefab"
+}

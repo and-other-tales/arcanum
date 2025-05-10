@@ -1,0 +1,51 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "test_building_1",
+      "properties": {
+        "height": 25.0,
+        "material": "brick",
+        "style": "victorian",
+        "building": "residential",
+        "levels": 3
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [0, 0],
+            [10, 0],
+            [10, 15],
+            [0, 15],
+            [0, 0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "test_building_2",
+      "properties": {
+        "height": 40.0,
+        "material": "glass",
+        "style": "modern",
+        "building": "commercial",
+        "levels": 8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [15, 5],
+            [25, 5],
+            [25, 20],
+            [15, 20],
+            [15, 5]
+          ]
+        ]
+      }
+    }
+  ]
+}

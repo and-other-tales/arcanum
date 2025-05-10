@@ -1,0 +1,14 @@
+{
+  "name": "building_test_building_2_material",
+  "shader": "Standard",
+  "mainTexture": "atlas_0.jpg",
+  "color": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "metallic": 0.0,
+  "smoothness": 0.0,
+  "normalScale": 1.0
+}
