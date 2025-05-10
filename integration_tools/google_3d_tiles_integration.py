@@ -16,6 +16,37 @@ from pathlib import Path
 import time
 from urllib.parse import urlparse, urlencode, quote
 
+# Add module level function for direct import
+def fetch_tiles(bounds: Dict, output_dir: str, max_depth: int = 3, region: str = None,
+               api_key: str = None, cache_dir: str = None) -> Dict:
+    """Fetch 3D tiles for the specified bounds and save to output directory.
+
+    This is a module-level function that creates a Google3DTilesIntegration instance
+    and delegates to its fetch_tiles method.
+
+    Args:
+        bounds: Dictionary with lat/lon bounds (e.g. {"south": 37.7, "west": -122.5, "north": 37.8, "east": -122.4})
+        output_dir: Directory to save downloaded tiles
+        max_depth: Maximum recursion depth for tile fetching
+        region: Optional region name (default global tileset)
+        api_key: Google Maps API key with 3D Tiles access (from env var if None)
+        cache_dir: Directory to cache downloaded tiles
+
+    Returns:
+        Dictionary with download results including success status
+    """
+    # Create class instance and configure it with API key
+    integration = Google3DTilesIntegration(
+        api_key=api_key,
+        cache_dir=cache_dir
+    )
+
+    # Log the request
+    logging.info(f"Fetching 3D tiles for bounds {bounds} with max_depth={max_depth}, region={region}")
+
+    # Delegate to the class method
+    return integration.fetch_tiles(bounds, output_dir, max_depth, region)
+
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -32,15 +63,15 @@ logger = logging.getLogger(__name__)
 
 class Google3DTilesIntegration:
     """Class that provides integration with Google Maps Platform's Photorealistic 3D Tiles API."""
-    
-    def __init__(self, 
+
+    def __init__(self,
                  api_key: str = None,
                  base_url: str = "https://tile.googleapis.com",
                  cache_dir: str = None,
                  retries: int = 3,
                  timeout: int = 30):
         """Initialize the Google 3D Tiles integration.
-        
+
         Args:
             api_key: Google Maps API key with 3D Tiles access (from env var if None)
             base_url: Base URL for the Google 3D Tiles API
@@ -343,16 +374,84 @@ class Google3DTilesIntegration:
         
         return downloaded_paths
     
-    def stream_tiles_to_storage(self, region: str = None, 
-                              max_depth: int = 3, 
+    def fetch_tiles(self, bounds: Dict, output_dir: str, max_depth: int = 3, region: str = None) -> Dict:
+        """Fetch 3D tiles for the specified bounds and save to output directory.
+
+        Args:
+            bounds: Dictionary with lat/lon bounds (e.g. {"south": 37.7, "west": -122.5, "north": 37.8, "east": -122.4})
+            output_dir: Directory to save downloaded tiles
+            max_depth: Maximum recursion depth for tile fetching
+            region: Optional region name (default global tileset)
+
+        Returns:
+            Dictionary with download results including success status
+        """
+        try:
+            # Create output directory if needed
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Generate a session token for this request session
+            # Session tokens are required by Google Maps API
+            session_token = f"arcanum_session_{int(time.time())}"
+            logger.info(f"Created session token: {session_token}")
+
+            # First fetch the tileset.json with API key authentication
+            tileset_json = self.fetch_tileset_json(region)
+
+            # If the tileset has session parameter requirements, add it
+            if "asset" in tileset_json and "extras" in tileset_json["asset"]:
+                # Add session information if not present
+                if "session" not in tileset_json["asset"]["extras"]:
+                    tileset_json["asset"]["extras"]["session"] = session_token
+
+            # Fetch all tiles recursively with authentication
+            downloaded_paths = self.fetch_tiles_recursive(
+                tileset_json,
+                max_depth=max_depth,
+                output_dir=output_dir
+            )
+
+            # Save the tileset.json to the output directory
+            tileset_path = os.path.join(output_dir, "tileset.json")
+            with open(tileset_path, "w") as f:
+                json.dump(tileset_json, f, indent=2)
+
+            # Add to downloaded paths
+            downloaded_paths.append(tileset_path)
+
+            # Extract and save copyright information if present
+            if "asset" in tileset_json and "copyright" in tileset_json["asset"]:
+                copyright_info = tileset_json["asset"]["copyright"]
+                copyright_path = os.path.join(output_dir, "copyright.txt")
+                with open(copyright_path, "w") as f:
+                    f.write(copyright_info)
+                downloaded_paths.append(copyright_path)
+                logger.info(f"Saved copyright information to {copyright_path}")
+
+            return {
+                "success": True,
+                "downloaded_tiles": len(downloaded_paths),
+                "paths": downloaded_paths,
+                "tileset_path": tileset_path
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching 3D tiles: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def stream_tiles_to_storage(self, region: str = None,
+                              max_depth: int = 3,
                               storage_manager = None) -> Dict:
         """Stream 3D tiles from Google Maps to Arcanum storage.
-        
+
         Args:
             region: Optional region name (default global tileset)
             max_depth: Maximum recursion depth for tile fetching
             storage_manager: Optional ArcanumStorageManager instance
-            
+
         Returns:
             Dictionary with streaming results
         """
