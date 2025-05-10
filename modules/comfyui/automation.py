@@ -27,8 +27,17 @@ except ImportError:
     PILLOW_AVAILABLE = False
     
 
-# Initialize logger
+# Set up logger with consistent format
+log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".arcanum", "logs")
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, "comfyui.log")
+
+# Add file handler to logger
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(file_handler)
 
 # ComfyUI constants
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"

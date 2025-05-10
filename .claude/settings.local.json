@@ -32,7 +32,8 @@
       "Bash(pip --version)",
       "Bash(rm:*)",
       "Bash(pip freeze)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(git rm:*)"
     ],
     "deny": []
   }

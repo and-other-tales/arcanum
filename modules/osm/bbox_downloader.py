@@ -11,7 +11,17 @@ import sys
 import logging
 from typing import Dict, Any, Tuple
 
+# Set up logger with consistent format
+log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".arcanum", "logs")
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, "osm.log")
+
+# Add file handler to logger
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(file_handler)
 
 def download_osm_data(bounds: Dict[str, float], output_dir: str, coordinate_system: str = "EPSG:4326") -> Dict[str, Any]:
     """

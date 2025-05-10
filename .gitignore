@@ -185,3 +185,6 @@ Thumbs.db
 # Claude Code
 CLAUDE.md
 .claude
+
+# Hidden arcanum directory
+.arcanum/

@@ -1,24 +1,10 @@
 #!/usr/bin/env python3
-import os
-import ee
+"""
+Authentication wrapper for Google Earth Engine (for backwards compatibility)
+"""
 
-# Path to service account key file
-SERVICE_ACCOUNT_KEY = os.path.expanduser('~/arcanum/key.json')
-
-# Initialize Earth Engine with service account
-def initialize_ee():
-    credentials = ee.ServiceAccountCredentials(
-        email=None,  # Will be read from the key file
-        key_file=SERVICE_ACCOUNT_KEY
-    )
-    
-    try:
-        ee.Initialize(credentials)
-        print("Google Earth Engine initialized successfully with service account.")
-        return True
-    except Exception as e:
-        print(f"Error initializing Earth Engine: {e}")
-        return False
+import sys
+from modules.geo.earth_engine import main
 
 if __name__ == "__main__":
-    initialize_ee()
+    sys.exit(main())
