@@ -4,7 +4,8 @@ langchain_core==0.3.59
 langchain_google_genai==2.1.4
 laspy==2.5.4
 matplotlib==3.10.3
-numpy<2.0.0 # Maintain compatibility with system sklearn
+numpy<2.0.0  # Maintain compatibility with sklearn
+scikit-learn>=1.1.2,<1.7.0  # Compatible with numpy<2.0.0
 osmnx==2.0.3
 # Relaxed protobuf constraint to resolve conflict with google-cloud-vision
 protobuf<6.0.0,>=3.20.2
@@ -26,5 +27,5 @@ earthengine-api==0.1.389
 google-auth==2.40.1
 # GDAL dependencies commented out due to installation issues
 # See README_GDAL.md for installation instructions
-pygdal==$(gdal-config --version).*
+# pygdal==$(gdal-config --version).*
 requests>=2.31.0

@@ -27,7 +27,10 @@
       "Bash(cat:*)",
       "Bash(./fix_environment.sh:*)",
       "Bash(./fix_environment_v2.sh:*)",
-      "Bash(./fix_environment_v3.sh:*)"
+      "Bash(./fix_environment_v3.sh:*)",
+      "Bash(source:*)",
+      "Bash(pip --version)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }
